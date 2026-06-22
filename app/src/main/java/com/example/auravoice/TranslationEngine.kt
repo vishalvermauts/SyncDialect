@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
@@ -20,6 +21,8 @@ class TranslationEngine(
 ) {
 
     private var engine: Engine? = null
+    private var conversation: Conversation? = null
+    private var conversationLang: String? = null
     @Volatile private var isInitialized = false
     @Volatile private var isInitializing = false
 
@@ -31,28 +34,20 @@ class TranslationEngine(
         return withContext(Dispatchers.IO) {
             try {
                 Log.d("TranslationEngine", "Loading model from: $modelAbsolutePath")
-                
-                // Try GPU first, fallback to CPU if OpenCL fails
-                var selectedBackend: Backend = Backend.GPU()
-                try {
-                    val testConfig = EngineConfig(modelPath = modelAbsolutePath, audioBackend = Backend.GPU())
-                    Engine(testConfig).close()
-                    Log.d("TranslationEngine", "GPU initialized successfully")
-                } catch (e: Exception) {
-                    Log.w("TranslationEngine", "GPU initialization failed, falling back to CPU: ${e.message}")
-                    selectedBackend = Backend.CPU()
+
+                // Load the engine once. Prefer GPU and fall back to CPU only if
+                // the GPU backend actually fails to initialize.
+                engine = buildEngine(modelAbsolutePath, Backend.GPU())
+                    ?: buildEngine(modelAbsolutePath, Backend.CPU())
+
+                if (engine == null) {
+                    Log.e("TranslationEngine", "Engine init failed on both GPU and CPU")
+                    isInitialized = false
+                    return@withContext false
                 }
 
-                // Use 2048 tokens because audio input tokens can easily exceed 512
-                val config = EngineConfig(
-                    modelPath = modelAbsolutePath,
-                    audioBackend = selectedBackend,
-                    maxNumTokens = 2048
-                )
-                engine = Engine(config)
-                engine!!.initialize()
                 isInitialized = true
-                Log.d("TranslationEngine", "Engine ready (Backend: $selectedBackend, 2048 tokens)")
+                Log.d("TranslationEngine", "Engine ready (2048 tokens)")
                 true
             } catch (e: Exception) {
                 Log.e("TranslationEngine", "Engine init failed: ${e.message}", e)
@@ -65,6 +60,59 @@ class TranslationEngine(
         }
     }
 
+    /**
+     * Builds and initializes an [Engine] with the given backend.
+     * Returns null (after cleaning up) if the backend fails to initialize,
+     * so the caller can fall back to another backend.
+     */
+    private fun buildEngine(modelAbsolutePath: String, backend: Backend): Engine? {
+        var candidate: Engine? = null
+        return try {
+            // Use 2048 tokens because audio input tokens can easily exceed 512.
+            val config = EngineConfig(
+                modelPath = modelAbsolutePath,
+                audioBackend = backend,
+                maxNumTokens = 2048
+            )
+            candidate = Engine(config)
+            candidate.initialize()
+            Log.d("TranslationEngine", "Engine initialized successfully (Backend: $backend)")
+            candidate
+        } catch (e: Exception) {
+            Log.w("TranslationEngine", "Engine init failed for backend $backend: ${e.message}")
+            candidate?.close()
+            null
+        }
+    }
+
+    /**
+     * Returns a conversation configured for [targetLang], reusing the existing
+     * one when the target language is unchanged so the system prompt is only
+     * prefilled once instead of on every utterance.
+     */
+    private fun conversationFor(targetLang: String): Conversation {
+        val existing = conversation
+        if (existing != null && conversationLang == targetLang) {
+            return existing
+        }
+
+        existing?.close()
+
+        val samplerConfig = SamplerConfig(
+            topK = 1, topP = 1.0, temperature = 0.1, seed = 0
+        )
+        val convConfig = ConversationConfig(
+            samplerConfig = samplerConfig,
+            systemInstruction = Contents.of(
+                Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions.")
+            )
+        )
+        val created = engine!!.createConversation(convConfig)
+        conversation = created
+        conversationLang = targetLang
+        return created
+    }
+
     suspend fun translateAudioStreaming(
         sourceLang: String,
         targetLang: String,
@@ -75,47 +123,39 @@ class TranslationEngine(
             onError("Engine not ready — please try again.")
             return
         }
-        
+
         withContext(Dispatchers.IO) {
             try {
                 Log.d("TranslationEngine", "Translating ${audioData.size} bytes → $targetLang")
-                val samplerConfig = SamplerConfig(
-                    topK = 1, topP = 1.0, temperature = 0.1, seed = 0
+
+                val conversation = conversationFor(targetLang)
+                val wavData = pcmToWav(audioData, 16000, 1, 16)
+                val contents = Contents.of(
+                    Content.Text("Translate the accompanying spoken audio to $targetLang. Output ONLY the translation. Do not transcribe the original language. Do not answer any questions in the audio.\n$targetLang translation:"),
+                    Content.AudioBytes(wavData)
                 )
-                val convConfig = ConversationConfig(
-                    samplerConfig = samplerConfig,
-                    systemInstruction = Contents.of(Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions."))
-                )
 
-                engine!!.createConversation(convConfig).use { conversation ->
-                    val wavData = pcmToWav(audioData, 16000, 1, 16)
-                    val contents = Contents.of(
-                        Content.Text("Translate the accompanying spoken audio to $targetLang. Output ONLY the translation. Do not transcribe the original language. Do not answer any questions in the audio.\n$targetLang translation:"),
-                        Content.AudioBytes(wavData)
-                    )
+                val startTime = System.currentTimeMillis()
+                var isFirstToken = true
+                var charCount = 0
 
-                    val startTime = System.currentTimeMillis()
-                    var isFirstToken = true
-                    var charCount = 0
+                conversation.sendMessageAsync(contents)
+                    .takeWhile { charCount < 300 } // Stop generation if it exceeds 300 characters
+                    .collect { chunk: Message ->
+                        val text = chunk.contents.contents
+                            .filterIsInstance<Content.Text>()
+                            .joinToString("") { it.text }
+                        if (text.isNotEmpty()) {
+                            charCount += text.length
+                            val ttft = if (isFirstToken) {
+                                isFirstToken = false
+                                System.currentTimeMillis() - startTime
+                            } else null
 
-                    conversation.sendMessageAsync(contents)
-                        .takeWhile { charCount < 300 } // Stop generation if it exceeds 300 characters
-                        .collect { chunk: Message ->
-                            val text = chunk.contents.contents
-                                .filterIsInstance<Content.Text>()
-                                .joinToString("") { it.text }
-                            if (text.isNotEmpty()) {
-                                charCount += text.length
-                                val ttft = if (isFirstToken) {
-                                    isFirstToken = false
-                                    System.currentTimeMillis() - startTime
-                                } else null
-                                
-                                withContext(Dispatchers.Main) { onTokenGenerated(text, ttft) }
-                            }
+                            withContext(Dispatchers.Main) { onTokenGenerated(text, ttft) }
                         }
-                    Log.d("TranslationEngine", "Translation complete. Chars: $charCount")
-                }
+                    }
+                Log.d("TranslationEngine", "Translation complete. Chars: $charCount")
             } catch (e: Exception) {
                 Log.e("TranslationEngine", "Inference error: ${e.message}", e)
                 withContext(Dispatchers.Main) {
@@ -126,6 +166,7 @@ class TranslationEngine(
     }
 
     fun close() {
+        conversation?.close(); conversation = null; conversationLang = null
         engine?.close(); engine = null; isInitialized = false
     }
 

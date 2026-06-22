@@ -46,7 +46,10 @@ class AudioRecorderHelper {
             var maxRmsInChunk = 0.0
             val silenceThresholdRMS = 600.0  // Adjusted for typical background noise
             val speechThresholdRMS = 1000.0  // Minimum RMS to be considered speech
-            val maxSilenceFrames = 15 // ~500ms depending on buffer size
+            // End an utterance after a short pause so translation can start sooner.
+            val maxSilenceFrames = 7 // ~230ms depending on buffer size
+            // 16kHz mono 16-bit -> 320ms of audio. Model minimum input length.
+            val minChunkBytes = 10240
 
             while (isRecording) {
                 try {
@@ -85,9 +88,10 @@ class AudioRecorderHelper {
                         if (silenceFrames >= maxSilenceFrames && chunkStream.size() >= 8000) {
                             if (maxRmsInChunk > speechThresholdRMS) {
                                 var chunkData = chunkStream.toByteArray()
-                                // Pad to 1 second (32000 bytes) if needed to satisfy model requirements
-                                if (chunkData.size < 32000) {
-                                    val paddedData = ByteArray(32000)
+                                // Pad up to the model minimum only; avoid inflating
+                                // short utterances all the way to 1 second.
+                                if (chunkData.size < minChunkBytes) {
+                                    val paddedData = ByteArray(minChunkBytes)
                                     System.arraycopy(chunkData, 0, paddedData, 0, chunkData.size)
                                     chunkData = paddedData
                                 }
@@ -123,4 +127,3 @@ class AudioRecorderHelper {
         audioRecord = null
     }
 }
-
