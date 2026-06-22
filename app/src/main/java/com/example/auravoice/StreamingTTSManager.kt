@@ -14,6 +14,10 @@ class StreamingTTSManager(
     private var tts: TextToSpeech? = null
     private var isReady = false
     private var buffer = StringBuilder()
+    // Force-speak the buffer once it grows past this length even without
+    // clause punctuation, so output is not held back when the model omits
+    // commas/periods.
+    private val maxBufferedChars = 60
 
     var onSpeakingStateChanged: ((Boolean) -> Unit)? = null
     private val activeUtterances = java.util.Collections.synchronizedSet(HashSet<String>())
@@ -122,19 +126,8 @@ class StreamingTTSManager(
 
             if (lastBoundary != -1) {
                 // Extract the phrase up to the boundary
-                var phraseToSpeak = currentText.substring(0, lastBoundary + 1).trim()
-                
-                // Strip out any Gemma system tags like <turn> or <eos> or markdown
-                phraseToSpeak = phraseToSpeak.replace(Regex("<[^>]*>"), "")
-                    .replace("end_of_turn", "")
-                    .replace("start_of_turn", "")
-                    .replace("eos", "")
-                    .replace("turn", "")
-                    .replace("model", "")
-                    .replace("user", "")
-                    .replace("*", "")
-                    .trim()
-                
+                val phraseToSpeak = sanitize(currentText.substring(0, lastBoundary + 1))
+
                 // Speak the phrase
                 if (phraseToSpeak.isNotEmpty()) {
                     speak(phraseToSpeak)
@@ -145,7 +138,33 @@ class StreamingTTSManager(
                 buffer.clear()
                 buffer.append(remainder)
             }
+        } else if (currentText.length >= maxBufferedChars) {
+            // No punctuation yet but the buffer is long; speak at the last
+            // word boundary so playback isn't stalled.
+            val lastSpace = currentText.lastIndexOf(' ')
+            if (lastSpace > 0) {
+                val phraseToSpeak = sanitize(currentText.substring(0, lastSpace))
+                if (phraseToSpeak.isNotEmpty()) {
+                    speak(phraseToSpeak)
+                }
+                val remainder = currentText.substring(lastSpace + 1)
+                buffer.clear()
+                buffer.append(remainder)
+            }
         }
+    }
+
+    /** Strips Gemma system tags and markdown from a phrase before speaking. */
+    private fun sanitize(text: String): String {
+        return text.replace(Regex("<[^>]*>"), "")
+            .replace("end_of_turn", "")
+            .replace("start_of_turn", "")
+            .replace("eos", "")
+            .replace("turn", "")
+            .replace("model", "")
+            .replace("user", "")
+            .replace("*", "")
+            .trim()
     }
 
     private fun speak(text: String) {
@@ -157,16 +176,7 @@ class StreamingTTSManager(
     }
 
     fun flush() {
-        var remainder = buffer.toString()
-        remainder = remainder.replace(Regex("<[^>]*>"), "")
-            .replace("end_of_turn", "")
-            .replace("start_of_turn", "")
-            .replace("eos", "")
-            .replace("turn", "")
-            .replace("model", "")
-            .replace("user", "")
-            .replace("*", "")
-            .trim()
+        val remainder = sanitize(buffer.toString())
         if (remainder.isNotEmpty()) {
             speak(remainder)
         }
