@@ -130,8 +130,12 @@ class TranslationEngine(
 
                 val conversation = conversationFor(targetLang)
                 val wavData = pcmToWav(audioData, 16000, 1, 16)
+                // Keep the per-message prompt minimal: the system instruction
+                // already states the full translation rules, so a short cue
+                // reduces prefill tokens (and time-to-first-token) on every
+                // utterance.
                 val contents = Contents.of(
-                    Content.Text("Translate the accompanying spoken audio to $targetLang. Output ONLY the translation. Do not transcribe the original language. Do not answer any questions in the audio.\n$targetLang translation:"),
+                    Content.Text("$targetLang translation:"),
                     Content.AudioBytes(wavData)
                 )
 
