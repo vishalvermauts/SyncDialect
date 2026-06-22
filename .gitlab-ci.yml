@@ -3,6 +3,8 @@
 # Compiles the debug APK and runs JVM unit tests on every merge request and on
 # the default branch. Uses an Android SDK image and installs the platform that
 # matches compileSdk (36) at job time, since prebuilt images may lag behind.
+#
+# Runs on GitLab-hosted shared runners.
 
 stages:
   - build
