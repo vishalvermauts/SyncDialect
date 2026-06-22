@@ -10,8 +10,6 @@ stages:
 
 default:
   image: eclipse-temurin:17-jdk
-  tags:
-    - saas-linux-medium-amd64
   before_script:
     # --- Android command-line tools ---
     - export ANDROID_HOME="${ANDROID_HOME:-$CI_PROJECT_DIR/.android-sdk}"
