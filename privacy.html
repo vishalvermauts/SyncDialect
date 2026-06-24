@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - SyncDialect</title>
+    <meta name="description" content="Privacy Policy for SyncDialect">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <nav>
+        <div class="nav-container">
+            <a href="index.html" class="logo">
+                <img src="assets/icon.png" alt="SyncDialect Logo" class="nav-icon">
+                SyncDialect
+            </a>
+            <div class="nav-links">
+                <a href="index.html#features">Features</a>
+                <a href="privacy.html" class="active">Privacy</a>
+                <a href="terms.html">Terms</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="legal-container">
+        <div class="legal-header">
+            <h1>Privacy Policy</h1>
+            <p>Last Updated: June 25, 2026</p>
+        </div>
+        
+        <div class="legal-content">
+            <p>At SyncDialect, privacy is not a feature; it is the fundamental architectural principle of our application. This Privacy Policy governs the manner in which SyncDialect collects, uses, maintains, and discloses information collected from users.</p>
+
+            <h2>1. Principle of Zero Data Exfiltration</h2>
+            <p>SyncDialect is designed as a <strong>100% offline application</strong>. Our core commitment to you is that your conversational data never leaves your physical device.</p>
+            <ul>
+                <li>We do <strong>not</strong> operate remote servers that process your audio.</li>
+                <li>We do <strong>not</strong> upload your voice recordings to the cloud.</li>
+                <li>We do <strong>not</strong> store transcripts of your conversations on any external database.</li>
+            </ul>
+
+            <h2>2. Microphone Permissions & Data Processing</h2>
+            <p>In order to provide real-time voice translation, SyncDialect requires explicit access to your device's <strong>Microphone</strong> (<code>android.permission.RECORD_AUDIO</code>).</p>
+            <h3>How audio is processed:</h3>
+            <p>When you activate the microphone, the audio is captured into volatile memory (RAM) and immediately fed into our on-device machine learning models (powered by Google ML Kit and MediaPipe). The audio is transcribed to text, translated, and immediately discarded from memory. No audio files are ever saved to your device's local storage or transmitted externally.</p>
+
+            <h2>3. Network Access & Language Packs</h2>
+            <p>While the translation engine operates offline, SyncDialect requires internet access (<code>android.permission.INTERNET</code>) exclusively for the following administrative purposes:</p>
+            <ul>
+                <li><strong>Downloading Language Packs:</strong> To provide translation capabilities, the app downloads mathematical language models from Google ML Kit servers.</li>
+                <li><strong>Downloading Large Language Models (LLMs):</strong> The app may download advanced generative models (like Gemma) directly from verified repositories such as Hugging Face.</li>
+            </ul>
+            <p>During these downloads, standard HTTP request metadata (such as your IP address) is visible to the respective hosting providers (Google, Hugging Face). However, SyncDialect does not attach any personally identifiable information, account data, or conversational data to these requests.</p>
+
+            <h2>4. Analytics and Telemetry</h2>
+            <p>We do not integrate third-party analytics trackers (such as Google Analytics or Firebase Crashlytics) into the SyncDialect application. We have zero visibility into how often you use the app, what languages you translate, or what errors you encounter.</p>
+
+            <h2>5. Children's Privacy</h2>
+            <p>Because we do not collect any personal information, SyncDialect is inherently safe for users of all ages. We do not knowingly collect personal information from children under 13.</p>
+
+            <h2>6. Changes to this Privacy Policy</h2>
+            <p>SyncDialect reserves the right to update this privacy policy at any time. When we do, we will revise the updated date at the top of this page. We encourage users to frequently check this page for any changes to stay informed about how we are protecting your privacy.</p>
+
+            <h2>7. Contacting Us</h2>
+            <p>If you have any questions regarding this Privacy Policy, please contact us at:</p>
+            <p><strong>Email:</strong> legal@syncdialect.app</p>
+        </div>
+    </main>
+
+    <footer>
+        <div class="footer-links">
+            <a href="privacy.html">Privacy Policy</a>
+            <a href="terms.html">Terms of Service</a>
+        </div>
+        <p>&copy; 2026 SyncDialect. All rights reserved.</p>
+    </footer>
+
+</body>
+</html>
