@@ -156,8 +156,8 @@ section {
 /* Bento Grid */
 .bento-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    grid-auto-rows: 350px;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 320px;
     gap: 1.5rem;
     max-width: 1200px;
     margin: 0 auto;
@@ -168,10 +168,9 @@ section {
     border-radius: 32px;
     border: 1px solid rgba(255,255,255,0.5);
     box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
-    overflow: hidden; /* Prevent images from spilling out */
-    display: flex;
-    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    overflow: hidden; 
     position: relative;
+    transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .bento-item:hover {
@@ -181,16 +180,14 @@ section {
 
 .bento-text {
     padding: 2.5rem;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
+    position: relative;
     z-index: 2;
-    flex: 1;
+    max-width: 75%;
 }
 
 .bento-text h3 {
-    font-size: 1.75rem;
-    margin-bottom: 0.75rem;
+    font-size: 1.6rem;
+    margin-bottom: 0.5rem;
     color: var(--text-main);
 }
 
@@ -200,14 +197,21 @@ section {
     line-height: 1.5;
 }
 
-/* Flex Layouts */
-.bento-row {
-    flex-direction: row;
-    align-items: center;
+/* Base image styling - acts like a phone peeking in */
+.bento-item img {
+    position: absolute;
+    bottom: -15%;
+    right: -10%;
+    height: 90%;
+    width: auto; /* Maintain aspect ratio */
+    border-radius: 16px;
+    box-shadow: -10px -10px 30px rgba(0,0,0,0.15);
+    z-index: 1;
+    transition: transform 0.4s ease;
 }
 
-.bento-col {
-    flex-direction: column;
+.bento-item:hover img {
+    transform: scale(1.03) translate(-2%, -2%);
 }
 
 /* Grid Spans */
@@ -216,70 +220,60 @@ section {
     grid-row: span 2;
     background: linear-gradient(145deg, #1F2937, #111827);
 }
-
+.span-2x2 .bento-text {
+    max-width: 45%;
+}
 .span-2x2 .bento-text h3 {
     color: white;
-    font-size: 2.5rem;
+    font-size: 2.2rem;
 }
-
 .span-2x2 .bento-text p {
     color: #9CA3AF;
-    font-size: 1.2rem;
+    font-size: 1.15rem;
 }
-
-.span-2x1 {
-    grid-column: span 2;
-    grid-row: span 1;
+.span-2x2 img {
+    height: 95%; /* almost full height */
+    right: 5%;
+    bottom: -5%;
 }
 
 .span-1x2 {
     grid-column: span 1;
     grid-row: span 2;
 }
-
-/* Images Styling */
-.bento-img-tall {
-    width: 40%;
-    height: 85%;
-    object-fit: cover;
-    object-position: top center;
-    border-radius: 16px 16px 0 0;
-    margin-right: 2.5rem;
-    margin-top: auto; /* Push to bottom */
-    box-shadow: 0 0 30px rgba(0,0,0,0.3);
+.span-1x2 .bento-text {
+    max-width: 100%;
+}
+.span-1x2 img {
+    height: 60%;
+    right: 50%;
+    transform: translateX(50%); /* Center the image horizontally */
+    bottom: -5%;
+}
+.span-1x2:hover img {
+    transform: translateX(50%) scale(1.03) translateY(-2%);
 }
 
-.bento-img-right {
-    width: 35%;
-    height: 110%; /* Overflowing height for stylization */
-    object-fit: cover;
-    object-position: top center;
-    border-radius: 16px;
-    margin-right: 2rem;
-    transform: translateY(20px);
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+.span-2x1 {
+    grid-column: span 2;
+    grid-row: span 1;
+}
+.span-2x1 .bento-text {
+    max-width: 60%;
+}
+.span-2x1 img {
+    height: 130%; /* bleed out of the box intentionally */
+    right: 5%;
+    bottom: -30%;
 }
 
-.bento-img-bottom {
-    width: 80%;
-    height: 50%;
-    margin: 0 auto;
-    object-fit: cover;
-    object-position: top center;
-    border-radius: 16px 16px 0 0;
-    margin-top: auto; /* Push to bottom */
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+.small-card .bento-text {
+    max-width: 100%;
 }
-
-.bento-img-bottom-small {
-    width: 80%;
-    height: 55%;
-    margin: 0 auto;
-    object-fit: cover;
-    object-position: top center;
-    border-radius: 16px 16px 0 0;
-    margin-top: auto;
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+.small-card img {
+    height: 75%;
+    right: -10%;
+    bottom: -15%;
 }
 
 /* Specific Bento Styles */
@@ -297,26 +291,38 @@ section {
     .bento-grid {
         grid-template-columns: repeat(2, 1fr);
     }
-    
     .span-2x2, .span-2x1 {
         grid-column: span 2;
     }
-    
     .span-1x2 {
         grid-column: span 1;
         grid-row: span 1;
+    }
+    .span-1x2 img {
+        height: 120%;
+        right: -10%;
+        bottom: -20%;
+        transform: none;
+    }
+    .span-1x2:hover img {
+        transform: scale(1.03);
     }
 }
 
 @media (max-width: 768px) {
     .hero h1 { font-size: 3rem; }
     .bento-grid { grid-template-columns: 1fr; }
-    .span-2x2, .span-2x1, .span-1x2 { grid-column: span 1; grid-row: auto; min-height: 350px; }
-    .bento-row { flex-direction: column; }
-    .bento-img-tall, .bento-img-right { width: 80%; height: 200px; margin-right: 0; transform: none; }
+    .span-2x2, .span-2x1, .span-1x2 { grid-column: span 1; grid-row: auto; min-height: 400px; }
+    .span-2x2 .bento-text, .span-2x1 .bento-text { max-width: 100%; }
     .nav-links { display: none; }
+    
+    .bento-item img {
+        height: 70%;
+        right: -10%;
+        bottom: -20%;
+        transform: none !important;
+    }
 }
-
 /* Architecture */
 .bg-light {
     background-color: var(--bg-tertiary);
