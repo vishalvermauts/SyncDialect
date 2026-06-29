@@ -251,21 +251,23 @@ section {
 }
 
 .bento-item:hover .bento-image-wrapper {
-    transform: scale(1.02);
+    transform: scale(1.03) translate(-1%, -1%);
 }
 
-/* Edge Bleed Masks to blend images into pure black backgrounds */
+/* Device Frame styling so they look like phones, not floating text */
 .bento-image-wrapper img {
-    width: 100%;
+    width: auto;
     height: 100%;
-    object-fit: cover;
-    object-position: top left;
+    object-fit: contain;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: -10px -10px 40px rgba(0, 0, 0, 0.5);
+    background-color: #000;
 }
 
+/* Specific Layouts */
 
-/* Specific Layouts (Edge-Bleed) */
-
-/* Huge Card: Text Top Left, Image bleeds bottom right */
+/* Huge Card: Text Top Left, Image peeks bottom right */
 .span-2x2 {
     grid-column: span 2;
     grid-row: span 2;
@@ -279,15 +281,11 @@ section {
 }
 .span-2x2 .bento-image-wrapper {
     bottom: -5%;
-    right: -5%;
-    width: 60%;
-    height: 80%;
-    -webkit-mask-image: linear-gradient(to right, transparent, black 30%), linear-gradient(to top, transparent, black 30%);
-    -webkit-mask-composite: destination-in;
-    mask-composite: intersect;
+    right: -2%;
+    height: 85%;
 }
 
-/* Tall Card: Text Top, Image bleeds bottom */
+/* Tall Card: Text Top, Image peeks bottom center */
 .span-1x2 {
     grid-column: span 1;
     grid-row: span 2;
@@ -295,16 +293,15 @@ section {
 }
 .span-1x2 .bento-image-wrapper {
     bottom: -5%;
-    left: 5%;
-    right: -5%;
+    left: 50%;
+    transform: translateX(-50%);
     height: 65%;
-    -webkit-mask-image: linear-gradient(to top, transparent, black 40%);
 }
-.span-1x2 img {
-    border-top-left-radius: 12px;
+.span-1x2:hover .bento-image-wrapper {
+    transform: translateX(-50%) scale(1.03) translateY(-2%);
 }
 
-/* Wide Card: Text Left, Image bleeds right */
+/* Wide Card: Text Left, Image peeks right */
 .span-2x1 {
     grid-column: span 2;
     grid-row: span 1;
@@ -314,14 +311,12 @@ section {
     max-width: 50%;
 }
 .span-2x1 .bento-image-wrapper {
-    bottom: -10%;
-    right: -5%;
-    width: 45%;
-    height: 120%;
-    -webkit-mask-image: linear-gradient(to right, transparent, black 30%);
+    bottom: -15%;
+    right: 2%;
+    height: 140%;
 }
 
-/* Small Cards: Image bleeds bottom right corner */
+/* Small Cards: Image peeks bottom right corner */
 .small-card {
     grid-column: span 1;
     grid-row: span 1;
@@ -332,12 +327,9 @@ section {
 }
 .small-card .bento-image-wrapper {
     bottom: -10%;
-    right: -10%;
-    width: 70%;
-    height: 70%;
-    -webkit-mask-image: linear-gradient(315deg, black 40%, transparent 100%);
+    right: -5%;
+    height: 85%;
 }
-
 
 /* Architecture */
 .bg-light {
