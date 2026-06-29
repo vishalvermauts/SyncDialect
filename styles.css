@@ -96,6 +96,8 @@ nav {
 .rotating-text {
     display: inline-block;
     min-width: 300px;
+    padding-bottom: 0.2em; /* Prevents descender clipping in Arabic */
+    line-height: 1.1;
     background: linear-gradient(90deg, #FFFFFF 0%, #A1A1AA 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
