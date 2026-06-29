@@ -191,7 +191,7 @@ section {
     font-size: 1.05rem;
     line-height: 1.5;
     z-index: 2;
-    max-width: 85%;
+    max-width: 100%;
 }
 
 .bento-item img {
@@ -330,4 +330,33 @@ footer {
     .bento-grid { grid-template-columns: 1fr; }
     .span-2x2, .span-2x1, .span-1x2 { grid-column: span 1; grid-row: auto; min-height: 300px; }
     .nav-links { display: none; }
+}
+
+/* Fix overlapping text in Bento items */
+.span-2x2 p {
+    max-width: 55%;
+}
+.span-2x1 p {
+    max-width: 65%;
+}
+.span-1x2 p, .bento-item:not(.span-2x2):not(.span-2x1) p {
+    max-width: 100%;
+    margin-bottom: 2rem;
+}
+
+/* Ensure text is always readable over images */
+.bento-item h3, .bento-item p {
+    text-shadow: 0 2px 10px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.8);
+    position: relative;
+    z-index: 3;
+}
+
+.span-2x2 h3, .span-2x2 p {
+    text-shadow: 0 2px 10px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.9);
+}
+
+/* Make images fade out at the top so text is more readable */
+.bento-item img {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 30%);
 }
