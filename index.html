@@ -149,6 +149,26 @@
             slideInterval = setInterval(nextSlide, 5000);
         }
 
+        
+        // Rotating Text
+        const words = ["translation.", "traducción.", "traduction.", "übersetzung.", "ترجمة.", "翻译."];
+        let wordIndex = 0;
+        const rotatingText = document.querySelector('.rotating-text');
+        
+        if(rotatingText) {
+            setInterval(() => {
+                rotatingText.classList.remove('fade-in');
+                rotatingText.classList.add('fade-out');
+                
+                setTimeout(() => {
+                    wordIndex = (wordIndex + 1) % words.length;
+                    rotatingText.textContent = words[wordIndex];
+                    rotatingText.classList.remove('fade-out');
+                    rotatingText.classList.add('fade-in');
+                }, 400); // Wait for fade out
+            }, 3000);
+        }
+
         // Start the slideshow
         resetInterval();
     </script>

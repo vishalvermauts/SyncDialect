@@ -92,6 +92,70 @@ nav {
 }
 
 /* Hero Section */
+/* Rotating Text */
+.rotating-text {
+    display: inline-block;
+    min-width: 300px;
+    background: linear-gradient(90deg, #FFFFFF 0%, #A1A1AA 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.rotating-text.fade-out {
+    animation: fadeOutUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.rotating-text.fade-in {
+    animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeOutUp {
+    0% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-20px); }
+}
+@keyframes fadeInUp {
+    0% { opacity: 0; transform: translateY(20px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Floating Languages Background */
+.hero {
+    position: relative;
+    overflow: hidden;
+}
+.floating-languages {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+    overflow: hidden;
+}
+.float-word {
+    position: absolute;
+    color: rgba(255, 255, 255, 0.03);
+    font-size: 4rem;
+    font-weight: 700;
+    white-space: nowrap;
+    animation: floatAnim 20s linear infinite;
+    opacity: 0;
+}
+@keyframes floatAnim {
+    0% { transform: translate(100vw, 100px) scale(0.8); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translate(-50vw, -100px) scale(1.2); opacity: 0; }
+}
+.w1 { top: 10%; animation-duration: 25s; animation-delay: 0s; font-size: 6rem; }
+.w2 { top: 30%; animation-duration: 35s; animation-delay: 5s; font-size: 3rem; }
+.w3 { top: 50%; animation-duration: 28s; animation-delay: 2s; font-size: 8rem; color: rgba(255, 255, 255, 0.02); }
+.w4 { top: 70%; animation-duration: 40s; animation-delay: 10s; font-size: 5rem; }
+.w5 { top: 20%; animation-duration: 30s; animation-delay: 15s; font-size: 4rem; }
+.w6 { top: 80%; animation-duration: 32s; animation-delay: 8s; font-size: 7rem; }
+.w7 { top: 40%; animation-duration: 22s; animation-delay: 12s; font-size: 5rem; }
+.w8 { top: 60%; animation-duration: 26s; animation-delay: 18s; font-size: 6rem; }
+
+
 .hero {
     padding: 200px 2rem 100px;
     text-align: center;
