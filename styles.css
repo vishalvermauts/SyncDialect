@@ -155,6 +155,7 @@ section {
 .bento-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
+    grid-auto-flow: dense;
     grid-auto-rows: 320px;
     gap: 2.5rem;
     max-width: 1200px;
@@ -257,18 +258,24 @@ section {
     max-width: 60%;
 }
 .span-2x1 img {
-    height: 130%; 
+    width: 30%;
+    height: auto; 
     right: 5%;
-    bottom: -30%;
+    bottom: -15%;
 }
 
 .small-card .bento-text {
     max-width: 100%;
 }
 .small-card img {
-    height: 75%;
-    right: -10%;
-    bottom: -15%;
+    width: 65%;
+    height: auto;
+    right: 50%;
+    transform: translateX(50%);
+    bottom: -10%;
+}
+.small-card:hover img {
+    transform: translateX(50%) scale(1.03) translateY(-2%);
 }
 
 /* Architecture */
