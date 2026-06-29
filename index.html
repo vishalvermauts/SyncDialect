@@ -42,63 +42,45 @@
             <p>Designed for professionals, travelers, and businesses who require absolute reliability in any environment.</p>
         </div>
         
-        <div class="bento-grid">
-            <!-- Main Hero Feature -->
-            <div class="bento-item span-2x2">
-                <div class="bento-text">
+                <div class="slideshow-container">
+            <div class="slideshow-visuals">
+                <div class="phone-frame">
+                    <img src="assets/1.jpeg" alt="Translation Interface" class="slide-image active" id="slide-img-1">
+                    <img src="assets/6.jpeg" alt="Language Packs" class="slide-image" id="slide-img-2">
+                    <img src="assets/3.jpeg" alt="Data Sovereignty" class="slide-image" id="slide-img-3">
+                    <img src="assets/2.jpeg" alt="Gemma Offline Engine" class="slide-image" id="slide-img-4">
+                    <img src="assets/5.jpeg" alt="Sleek Dark UI" class="slide-image" id="slide-img-5">
+                </div>
+            </div>
+            
+            <div class="slideshow-content">
+                <div class="feature-block active" onclick="switchSlide(1)">
                     <h3>Real-Time Neural Translation</h3>
                     <p>Speak naturally. Our advanced on-device neural network pipelines transcribe and translate your voice instantly with ultra-low latency, effectively eliminating conversational lag.</p>
                 </div>
-                <div class="bento-image-wrapper">
-                    <img src="assets/1.jpg" alt="App Translation Screen">
-                </div>
-            </div>
-            
-            <!-- Tall Feature -->
-            <div class="bento-item span-1x2">
-                <div class="bento-text">
+                
+                <div class="feature-block" onclick="switchSlide(2)">
                     <h3>60+ Language Packs</h3>
-                    <p>Modular architecture allows you to download only the language packs you need.</p>
+                    <p>Modular architecture allows you to download only the language packs you need. Conserve storage space while maintaining a comprehensive global communication toolkit offline.</p>
                 </div>
-                <div class="bento-image-wrapper">
-                    <img src="assets/3.jpg" alt="Language Selection Screen">
-                </div>
-            </div>
-
-            <!-- Secondary Wide Feature -->
-            <div class="bento-item span-2x1">
-                <div class="bento-text">
+                
+                <div class="feature-block" onclick="switchSlide(3)">
                     <h3>Absolute Data Sovereignty</h3>
-                    <p>We believe your conversations belong to you. SyncDialect operates without a persistent internet connection.</p>
+                    <p>We believe your conversations belong to you. SyncDialect operates without a persistent internet connection. No cloud processing. No voice data logging. Complete privacy.</p>
                 </div>
-                <div class="bento-image-wrapper">
-                    <img src="assets/2.jpg" alt="Privacy Settings">
-                </div>
-            </div>
-            
-            <!-- Small Feature 1 -->
-            <div class="bento-item small-card">
-                <div class="bento-text">
+                
+                <div class="feature-block" onclick="switchSlide(4)">
                     <h3>Gemma Offline AI</h3>
-                    <p>Powered by the lightweight 2B LLM engine running entirely locally on your phone.</p>
+                    <p>Powered by the lightweight 2B LLM engine running entirely locally on your phone. Experience context-aware translations that understand nuance better than traditional dictionary-based models.</p>
                 </div>
-                <div class="bento-image-wrapper">
-                    <img src="assets/5.jpg" alt="Offline Engine">
-                </div>
-            </div>
-            
-            <!-- Small Feature 2 with Image -->
-            <div class="bento-item small-card">
-                <div class="bento-text">
+                
+                <div class="feature-block" onclick="switchSlide(5)">
                     <h3>Sleek Dark UI</h3>
-                    <p>An intuitive interface designed for quick access.</p>
-                </div>
-                <div class="bento-image-wrapper">
-                    <img src="assets/4.jpg" alt="App UI">
+                    <p>An intuitive interface designed for quick access. Easily swap languages, monitor active recording, and read transcriptions clearly in any lighting condition.</p>
                 </div>
             </div>
         </div>
-    </section>
+</section>
 
     <!-- Architecture & Tech Stack -->
     <div id="architecture" class="bg-light">
@@ -134,5 +116,47 @@
         <p>&copy; 2026 SyncDialect. All rights reserved.</p>
     </footer>
 
+
+    <script>
+        let currentSlide = 1;
+        const totalSlides = 5;
+        let slideInterval;
+
+        function switchSlide(slideIndex) {
+            // Update active states for images
+            document.querySelectorAll('.slide-image').forEach((img, index) => {
+                if (index + 1 === slideIndex) {
+                    img.classList.add('active');
+                } else {
+                    img.classList.remove('active');
+                }
+            });
+
+            // Update active states for feature blocks
+            document.querySelectorAll('.feature-block').forEach((block, index) => {
+                if (index + 1 === slideIndex) {
+                    block.classList.add('active');
+                } else {
+                    block.classList.remove('active');
+                }
+            });
+
+            currentSlide = slideIndex;
+            resetInterval();
+        }
+
+        function nextSlide() {
+            currentSlide = currentSlide >= totalSlides ? 1 : currentSlide + 1;
+            switchSlide(currentSlide);
+        }
+
+        function resetInterval() {
+            clearInterval(slideInterval);
+            slideInterval = setInterval(nextSlide, 5000);
+        }
+
+        // Start the slideshow
+        resetInterval();
+    </script>
 </body>
 </html>
