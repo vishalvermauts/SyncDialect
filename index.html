@@ -29,36 +29,52 @@
     <!-- Hero Section -->
     <header class="hero">
         <div class="hero-content">
-            <h1>Enterprise-grade translation. <br><span style="color: var(--accent-blue)">Zero data leaves your device.</span></h1>
+            <h1>Enterprise-grade translation. <br><span style="color: var(--accent-coral)">Zero data leaves your device.</span></h1>
             <p>SyncDialect leverages the power of Gemma 2B and Google ML Kit to deliver instantaneous, highly accurate voice translation entirely offline. Absolute privacy, without compromising performance.</p>
             <a href="#" class="cta-button">Get it on Google Play</a>
         </div>
-        <div class="hero-image-wrapper">
-            <img src="assets/feature.png" alt="SyncDialect Application Interface">
-        </div>
     </header>
 
-    <!-- Features -->
+    <!-- Bento Grid Features Section -->
     <section id="features">
         <div class="section-header">
             <h2>Uncompromising Capabilities</h2>
             <p>Designed for professionals, travelers, and businesses who require absolute reliability in any environment.</p>
         </div>
-        <div class="feature-grid">
-            <div class="feature-card">
-                <div class="feature-icon">⚡</div>
+        
+        <div class="bento-grid">
+            <!-- Main Hero Feature -->
+            <div class="bento-item span-2x2">
                 <h3>Real-Time Neural Translation</h3>
                 <p>Speak naturally. Our advanced on-device neural network pipelines transcribe and translate your voice instantly with ultra-low latency, effectively eliminating conversational lag.</p>
+                <img src="assets/screenshot1.png" alt="App Translation Screen" style="right: 5%; bottom: -10%;">
             </div>
-            <div class="feature-card">
-                <div class="feature-icon">🛡️</div>
+            
+            <!-- Secondary Wide Feature -->
+            <div class="bento-item span-2x1 glass-effect">
                 <h3>Absolute Data Sovereignty</h3>
                 <p>We believe your conversations belong to you. SyncDialect operates without a persistent internet connection. Audio is processed entirely on the CPU/NPU of your local device.</p>
+                <img src="assets/screenshot2.png" alt="Privacy Settings" style="right: -30px; bottom: -50px; height: 120%; opacity: 0.5;">
             </div>
-            <div class="feature-card">
-                <div class="feature-icon">🌍</div>
-                <h3>60+ Modular Language Packs</h3>
-                <p>Support for over 60 global dialects. Our modular architecture allows you to download only the language packs you need, dynamically managing your device's storage footprint.</p>
+            
+            <!-- Tall Feature -->
+            <div class="bento-item span-1x2 accent-bg">
+                <h3>60+ Language Packs</h3>
+                <p>Support for over 60 global dialects. Our modular architecture allows you to download only the language packs you need.</p>
+                <img src="assets/screenshot3.png" alt="Language Selection Screen" style="right: -10px; bottom: -30px; height: 70%;">
+            </div>
+            
+            <!-- Small Feature 1 -->
+            <div class="bento-item">
+                <h3>Gemma Offline AI</h3>
+                <p>Powered by the lightweight 2B LLM engine running entirely locally on your phone.</p>
+            </div>
+            
+            <!-- Small Feature 2 with Image -->
+            <div class="bento-item glass-effect">
+                <h3>Sleek Dark UI</h3>
+                <p>An intuitive interface designed for quick access.</p>
+                <img src="assets/screenshot4.png" alt="App UI" style="right: -40px; bottom: -20px; height: 80%;">
             </div>
         </div>
     </section>
@@ -66,9 +82,9 @@
     <!-- Architecture & Tech Stack -->
     <div id="architecture" class="bg-light">
         <div class="container">
-            <div class="section-header">
+            <div class="section-header" style="margin-bottom: 3rem;">
                 <h2>Built on Cutting-Edge Technology</h2>
-                <p>SyncDialect is engineered from the ground up using state-of-the-art native Android tooling and localized machine learning pipelines.</p>
+                <p>SyncDialect is engineered from the ground up using state-of-the-art native Android tooling.</p>
             </div>
             <div class="tech-stack">
                 <div class="tech-item">
@@ -82,10 +98,6 @@
                 <div class="tech-item">
                     <span>Jetpack Compose</span>
                     <p style="font-weight: 400; font-size: 0.9rem; text-align: center; max-width: 200px;">Reactive, declarative UI architecture</p>
-                </div>
-                <div class="tech-item">
-                    <span>MediaPipe</span>
-                    <p style="font-weight: 400; font-size: 0.9rem; text-align: center; max-width: 200px;">Optimized edge execution</p>
                 </div>
             </div>
         </div>
