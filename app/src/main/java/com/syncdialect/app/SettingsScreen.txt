@@ -1,0 +1,212 @@
+﻿    @Composable
+    fun SettingsScreen() {
+        var showVoiceSettings by remember { mutableStateOf(false) }
+        val scrollState = rememberScrollState()
+
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(scrollState)) {
+            Text("Settings", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Offline Model Card
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF1E1E1E)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp).fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Offline Translation Model", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (isModelReady.value) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Model is downloaded and ready.", color = Color.White, fontSize = 14.sp)
+                        }
+                    } else if (isDownloading.value) {
+                        Column {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Downloading Engine...", color = Color.White, fontSize = 14.sp)
+                                Text("%", color = Color.White, fontSize = 14.sp)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            LinearProgressIndicator(progress = downloadProgress.value / 100f, modifier = Modifier.fillMaxWidth(), color = AccentCoral, trackColor = Color(0xFF333333))
+                        }
+                    } else {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Model missing (2.2GB)", color = Color.Gray, fontSize = 14.sp)
+                            Button(onClick = { 
+                                isDownloading.value = true
+                                downloadManager.downloadModel(
+                                    onProgress = { progress -> downloadProgress.value = progress.toFloat() },
+                                    onComplete = { success ->
+                                        isDownloading.value = false
+                                        if (success) {
+                                            isModelReady.value = true
+                                        }
+                                    }
+                                )
+                            }, colors = ButtonDefaults.buttonColors(containerColor = AccentCoral)) {
+                                Text("Download")
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // System Languages Card (ML Kit & TTS)
+            LanguageManagementCard()
+            
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Voice TTS Settings Card
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF1E1E1E)),
+                modifier = Modifier.fillMaxWidth().clickable { showVoiceSettings = true }
+            ) {
+                Row(modifier = Modifier.padding(20.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.VolumeUp, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Voice Settings", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text("Configure Text-to-Speech voices", color = TextSecondary, fontSize = 14.sp, modifier = Modifier.padding(start = 36.dp))
+                    }
+                    Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = TextSecondary)
+                }
+            }
+            
+            Spacer(Modifier.height(100.dp))
+        }
+
+        if (showVoiceSettings) {
+            VoiceSettingsDialog(targetLanguage.value, ttsEngine, forceOfflineTts.value) { showVoiceSettings = false }
+        }
+    }
+
+    @Composable
+    fun LanguageManagementCard() {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var downloadedModels by remember { mutableStateOf<Set<String>>(emptySet()) }
+        var isChecking by remember { mutableStateOf(true) }
+        
+        val languages = listOf("English", "Spanish", "French", "German", "Hindi", "Japanese", "Korean", "Chinese")
+        
+        val checkModels = {
+            com.google.mlkit.common.model.RemoteModelManager.getInstance().getDownloadedModels(com.google.mlkit.nl.translate.TranslateRemoteModel::class.java)
+                .addOnSuccessListener { models ->
+                    downloadedModels = models.map { it.language }.toSet()
+                    isChecking = false
+                }
+                .addOnFailureListener {
+                    isChecking = false
+                }
+        }
+        
+        LaunchedEffect(Unit) {
+            checkModels()
+        }
+        
+        val mapLanguage = { lang: String ->
+            when (lang.lowercase()) {
+                "english" -> com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH
+                "spanish" -> com.google.mlkit.nl.translate.TranslateLanguage.SPANISH
+                "french" -> com.google.mlkit.nl.translate.TranslateLanguage.FRENCH
+                "hindi" -> com.google.mlkit.nl.translate.TranslateLanguage.HINDI
+                "german" -> com.google.mlkit.nl.translate.TranslateLanguage.GERMAN
+                "chinese" -> com.google.mlkit.nl.translate.TranslateLanguage.CHINESE
+                "japanese" -> com.google.mlkit.nl.translate.TranslateLanguage.JAPANESE
+                "korean" -> com.google.mlkit.nl.translate.TranslateLanguage.KOREAN
+                "italian" -> com.google.mlkit.nl.translate.TranslateLanguage.ITALIAN
+                "portuguese" -> com.google.mlkit.nl.translate.TranslateLanguage.PORTUGUESE
+                "russian" -> com.google.mlkit.nl.translate.TranslateLanguage.RUSSIAN
+                else -> com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH
+            }
+        }
+
+        ElevatedCard(
+            colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF1E1E1E)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp).fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Language, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("System Languages", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Manage phone-inbuilt language packs.", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(start = 36.dp))
+                Spacer(Modifier.height(16.dp))
+                
+                if (isChecking) {
+                    androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).size(24.dp), color = AccentCoral)
+                } else {
+                    languages.forEach { lang ->
+                        val code = mapLanguage(lang)
+                        val isDownloaded = downloadedModels.contains(code)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(lang, color = Color.White, fontSize = 16.sp)
+                            if (isDownloaded) {
+                                Text("Downloaded", color = Color(0xFF4CAF50), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Text("Not Downloaded", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        }
+                        androidx.compose.material3.HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun VoiceSettingsDialog(targetLanguage: String, ttsEngine: StreamingTTSManager, forceOffline: Boolean, onDismiss: () -> Unit) {
+        val langCode = when(targetLanguage) {
+            "Spanish" -> "es"
+            "French" -> "fr"
+            "German" -> "de"
+            "Hindi" -> "hi"
+            "Japanese" -> "ja"
+            "Korean" -> "ko"
+            "Chinese" -> "zh"
+            else -> "en"
+        }
+
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = Color(0xFF252525),
+            title = { Text("Voice Settings", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Current Target: ", color = TextSecondary, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("Force Offline TTS", color = Color.White, fontSize = 16.sp)
+                        androidx.compose.material3.Switch(
+                            checked = forceOfflineTts.value,
+                            onCheckedChange = { forceOfflineTts.value = it },
+                            colors = androidx.compose.material3.SwitchDefaults.colors(checkedThumbColor = AccentCoral, checkedTrackColor = AccentCoral.copy(alpha=0.5f))
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("If enabled, the app will only use voices downloaded to your phone. If disabled, it may use higher quality network voices.", color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = onDismiss) {
+                    Text("Close", color = AccentCoral, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }

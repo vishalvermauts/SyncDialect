@@ -1,0 +1,70 @@
+# CI for the AuraVoice Android app.
+#
+# Compiles the debug APK and runs JVM unit tests on every merge request and on
+# the default branch. Uses an Android SDK image and installs the platform that
+# matches compileSdk (36) at job time, since prebuilt images may lag behind.
+#
+# Runs on GitLab-hosted shared runners.
+
+stages:
+  - build
+  - test
+
+default:
+  image: eclipse-temurin:17-jdk
+  before_script:
+    # --- Android command-line tools ---
+    - export ANDROID_HOME="${ANDROID_HOME:-$CI_PROJECT_DIR/.android-sdk}"
+    - export ANDROID_SDK_ROOT="$ANDROID_HOME"
+    - |
+      if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+        apt-get update -qq && apt-get install -y -qq unzip wget > /dev/null
+        mkdir -p "$ANDROID_HOME/cmdline-tools"
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
+        unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools"
+        mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+      fi
+    - export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+    # --- SDK packages required by app/build.gradle.kts (compileSdk = 36) ---
+    - yes | sdkmanager --licenses > /dev/null || true
+    - sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+    - chmod +x ./gradlew
+
+# Cache Gradle and the downloaded SDK between runs to speed up builds.
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .gradle/
+    - .android-sdk/
+
+build:debug:
+  stage: build
+  script:
+    - ./gradlew --no-daemon assembleDebug
+  artifacts:
+    name: "auravoice-debug-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - app/build/outputs/apk/debug/*.apk
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+test:unit:
+  stage: test
+  script:
+    - ./gradlew --no-daemon testDebugUnitTest
+  artifacts:
+    when: always
+    reports:
+      junit: app/build/test-results/testDebugUnitTest/**/TEST-*.xml
+    paths:
+      - app/build/reports/tests/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
