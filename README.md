@@ -1,4 +1,4 @@
-# auratranslate
+# SyncDialect
 
 
 

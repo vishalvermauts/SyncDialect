@@ -96,8 +96,7 @@ dependencies {
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.espresso.core)
 
-  // ML Kit Text Recognition and Translation
-  implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+
   implementation("com.google.mlkit:translate:17.0.3")
 
   // Navigation
@@ -107,3 +106,7 @@ dependencies {
 
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 }
+
+// Dummy task to satisfy Android Studio Gradle Sync if it requests prepareKotlinBuildScriptModel
+tasks.register("prepareKotlinBuildScriptModel") {}
+

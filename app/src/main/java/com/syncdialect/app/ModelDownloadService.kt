@@ -85,7 +85,7 @@ class ModelDownloadService : Service() {
     private fun startDownload() {
         serviceScope.launch {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            val wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AuraVoice::ModelDownloadService")
+            val wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SyncDialect::ModelDownloadService")
             
             val modelFileName = "gemma-4-E2B-it.litertlm"
             val modelDownloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"

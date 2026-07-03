@@ -8,10 +8,10 @@ class AppPreferences(context: Context) {
 
     // --- Tuning Parameters ---
 
-    // VAD Wait Frames (Speed): 10 to 50 (default 25 = 1.0s)
+    // VAD Wait Frames (Speed): 10 to 50 (default 10 = 0.4s)
     var vadWaitFrames: Int
-        get() = prefs.getInt("vadWaitFrames", 25)
-        set(value) = prefs.edit().putInt("vadWaitFrames", value).apply()
+    get() = prefs.getInt("vadWaitFrames", 10)
+    set(value) = prefs.edit().putInt("vadWaitFrames", value).apply()
 
     // Model Temperature: 0.0 to 1.0 (default 0.1)
     var modelTemperature: Float
@@ -22,6 +22,11 @@ class AppPreferences(context: Context) {
     var modelTopK: Int
         get() = prefs.getInt("modelTopK", 1)
         set(value) = prefs.edit().putInt("modelTopK", value).apply()
+
+    // TTS Speech Rate: 0.5 to 2.0 (default 1.0)
+    var ttsSpeechRate: Float
+        get() = prefs.getFloat("ttsSpeechRate", 1.0f)
+        set(value) = prefs.edit().putFloat("ttsSpeechRate", value).apply()
 
     // --- Voice Selection ---
     

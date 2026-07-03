@@ -14,7 +14,7 @@
 These settings were meticulously tuned to eliminate hallucinations, acoustic feedback loops, and premature audio cutoff.
 
 #### 1. Audio Recording & Voice Activity Detection (VAD)
-Located in [AudioRecorderHelper.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/example/auravoice/AudioRecorderHelper.kt).
+Located in [AudioRecorderHelper.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/syncdialect/app/AudioRecorderHelper.kt).
 - `sampleRate` = 16000
 - `silenceThresholdRMS` = 2000.0 (Tolerance for background noise)
 - `speechThresholdRMS` = 3000.0 (Minimum volume to be considered active speech)
@@ -23,7 +23,7 @@ Located in [AudioRecorderHelper.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate
 - **Acoustic Feedback Protection**: The `isMuted` flag is dynamically toggled by the TTS Engine to ignore microphone input while the app is speaking its translation. This entirely prevents infinite translation loops.
 
 #### 2. LLM Translation Engine Configuration
-Located in [TranslationEngine.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/example/auravoice/TranslationEngine.kt).
+Located in [TranslationEngine.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/syncdialect/app/TranslationEngine.kt).
 - `topK` = 1
 - `topP` = 1.0
 - `temperature` = 0.1
@@ -33,12 +33,11 @@ Located in [TranslationEngine.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/a
 
 #### 3. Core Features & Flows
 - **Live Voice Translation**: Streams real-time audio from microphone, chunks it via RMS-based VAD, converts PCM to WAV on the fly, and feeds it directly into the LiteRT audio-multimodal input for Gemma.
-- **Camera Translation**: Uses CameraX and ML Kit to extract text from images, formatting it via a structured prompt to Gemma for text-to-text translation.
-- **Background Processes**: Model weights (2.2GB) are handled by a custom [ModelDownloadManager.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/example/auravoice/ModelDownloadManager.kt) leveraging Android's `DownloadManager` API.
-- **Text-to-Speech Mitigation**: The [StreamingTTSManager.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/example/auravoice/StreamingTTSManager.kt) dynamically sets flags to mute the mic while playing translation output.
+- **Background Processes**: Model weights (2.2GB) are handled by a custom [ModelDownloadManager.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/syncdialect/app/ModelDownloadManager.kt) leveraging Android's `DownloadManager` API.
+- **Text-to-Speech Mitigation**: The [StreamingTTSManager.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/syncdialect/app/StreamingTTSManager.kt) dynamically sets flags to mute the mic while playing translation output.
 
 ### UI Theme Configuration
-Located in [MainActivity.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/example/auravoice/MainActivity.kt).
+Located in [MainActivity.kt](file:///C:/Users/mcmur/Desktop/AuraTranslate/app/src/main/java/com/syncdialect/app/MainActivity.kt).
 - App Name: `SyncDialect`
 - Top Background: `#050507`
 - Bottom Background: `#14141C`

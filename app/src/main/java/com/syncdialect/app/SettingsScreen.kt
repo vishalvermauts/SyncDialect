@@ -325,6 +325,31 @@ fun SettingsScreen(
     if (showVoiceSettings) {
         VoiceSettingsDialog(targetLanguage.value, targetLanguageTag.value, ttsEngine, forceOfflineTts, AccentCoral) { showVoiceSettings = false }
     }
+
+    if (showDeleteConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Gemma Model?") },
+            text = { Text("Are you sure you want to delete the 2.2GB Gemma model? Translation will not work offline.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    downloadManager.deleteModel()
+                    isModelReady.value = false
+                    showDeleteConfirm = false
+                }) {
+                    Text("Delete", color = Color.Red)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", color = Color.White)
+                }
+            },
+            containerColor = CardBackground,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary
+        )
+    }
 }
 
 
@@ -525,30 +550,6 @@ fun LanguagePacksCard(accentColor: Color, cardBackground: Color, cardBorder: Col
             }
         }
     }
-    if (showDeleteConfirm) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Gemma Model?") },
-            text = { Text("Are you sure you want to delete the 2.2GB Gemma model? Translation will not work offline.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    downloadManager.deleteModel()
-                    isModelReady.value = false
-                    showDeleteConfirm = false
-                }) {
-                    Text("Delete", color = Color.Red)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("Cancel", color = Color.White)
-                }
-            },
-            containerColor = CardBackground,
-            titleContentColor = TextPrimary,
-            textContentColor = TextSecondary
-        )
-    }
 }
 
 data class FormattedVoice(val voice: android.speech.tts.Voice, val gender: String, val type: String, val displayName: String, val originalName: String)
@@ -682,6 +683,26 @@ fun VoiceSettingsDialog(
                         }
                     }
                 }
+                
+                var currentSpeechRate by remember { mutableStateOf(AppPreferences(context).ttsSpeechRate) }
+
+                Spacer(Modifier.height(24.dp))
+                Text("Speech Rate", color = Color.White, fontSize = 16.sp)
+                Slider(
+                    value = currentSpeechRate,
+                    onValueChange = { 
+                        currentSpeechRate = it
+                        AppPreferences(context).ttsSpeechRate = it
+                        ttsEngine.setSpeechRate(it)
+                    },
+                    valueRange = 0.5f..2.0f,
+                    steps = 14,
+                    colors = SliderDefaults.colors(
+                        thumbColor = accentColor,
+                        activeTrackColor = accentColor
+                    )
+                )
+                Text("Speed: ${String.format(java.util.Locale.US, "%.1fx", currentSpeechRate)}", color = Color.Gray, fontSize = 12.sp)
                 
                 Spacer(Modifier.height(24.dp))
                 

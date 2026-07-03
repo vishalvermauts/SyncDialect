@@ -15,10 +15,9 @@ class StreamingTTSManager(
     private var tts: TextToSpeech? = null
     private var isReady = false
     private var buffer = StringBuilder()
-    // Force-speak the buffer once it grows past this length even without
-    // clause punctuation, so output is not held back when the model omits
-    // commas/periods.
-    private val maxBufferedChars = 60
+    // Force-speak the buffer once it grows past this word or char length
+    private val maxBufferedWords = 3
+    private val maxBufferedChars = 25
 
     var onSpeakingStateChanged: ((Boolean) -> Unit)? = null
     private val activeUtterances = java.util.Collections.synchronizedSet(HashSet<String>())
@@ -32,8 +31,21 @@ class StreamingTTSManager(
         if (status == TextToSpeech.SUCCESS) {
             isReady = true
             setupUtteranceListener()
+            
+            // Set Low Latency Audio Attributes for faster playback
+            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                tts?.setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setFlags(android.media.AudioAttributes.FLAG_LOW_LATENCY)
+                        .build()
+                )
+            }
+            
             // Default to English
             setLanguage("en")
+            tts?.setSpeechRate(prefs.ttsSpeechRate)
             Log.d("TTS", "TextToSpeech Initialized")
         } else {
             Log.e("TTS", "Initialization Failed!")
@@ -181,6 +193,11 @@ class StreamingTTSManager(
         }
     }
 
+    fun setSpeechRate(rate: Float) {
+        if (!isReady || tts == null) return
+        tts?.setSpeechRate(rate)
+    }
+
     // Process incoming translated tokens
     fun processToken(token: String) {
         if (!isReady) return
@@ -214,18 +231,28 @@ class StreamingTTSManager(
                 buffer.clear()
                 buffer.append(remainder)
             }
-        } else if (currentText.length >= maxBufferedChars) {
-            // No punctuation yet but the buffer is long; speak at the last
-            // word boundary so playback isn't stalled.
-            val lastSpace = currentText.lastIndexOf(' ')
-            if (lastSpace > 0) {
-                val phraseToSpeak = sanitize(currentText.substring(0, lastSpace))
-                if (phraseToSpeak.isNotEmpty()) {
-                    speak(phraseToSpeak)
+        } else {
+            // Incremental chunking: if we hit 3+ words or 25+ chars (for languages without spaces)
+            val words = currentText.split(" ")
+            if (words.size > maxBufferedWords || currentText.length >= maxBufferedChars) {
+                // Speak at the last word boundary so playback isn't stalled mid-word.
+                val lastSpace = currentText.lastIndexOf(' ')
+                if (lastSpace > 0) {
+                    val phraseToSpeak = sanitize(currentText.substring(0, lastSpace))
+                    if (phraseToSpeak.isNotEmpty()) {
+                        speak(phraseToSpeak)
+                    }
+                    val remainder = currentText.substring(lastSpace + 1)
+                    buffer.clear()
+                    buffer.append(remainder)
+                } else if (currentText.length >= maxBufferedChars) {
+                    // For languages without spaces, just speak the chunk
+                    val phraseToSpeak = sanitize(currentText)
+                    if (phraseToSpeak.isNotEmpty()) {
+                        speak(phraseToSpeak)
+                    }
+                    buffer.clear()
                 }
-                val remainder = currentText.substring(lastSpace + 1)
-                buffer.clear()
-                buffer.append(remainder)
             }
         }
     }
