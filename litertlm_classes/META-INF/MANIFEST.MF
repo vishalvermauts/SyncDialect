@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Created-By: JetBrains Kotlin
+Target-Label: //third_party/odml/litert_lm/kotlin/java/com/google/ai/edg
+ e/litertlm:litertlm-android
+

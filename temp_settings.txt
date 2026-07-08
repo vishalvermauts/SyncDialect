@@ -1,0 +1,815 @@
+1: package com.syncdialect.app
+2: 
+3: import androidx.compose.foundation.background
+4: import androidx.compose.foundation.border
+5: import androidx.compose.foundation.clickable
+6: import androidx.compose.foundation.layout.*
+7: import androidx.compose.foundation.lazy.LazyColumn
+8: import androidx.compose.foundation.rememberScrollState
+9: import androidx.compose.foundation.shape.CircleShape
+10: import androidx.compose.foundation.shape.RoundedCornerShape
+11: import androidx.compose.foundation.verticalScroll
+12: import androidx.compose.material.icons.Icons
+13: import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+14: import androidx.compose.material.icons.filled.*
+15: import androidx.compose.material3.*
+16: import androidx.compose.runtime.*
+17: import androidx.compose.ui.Alignment
+18: import androidx.compose.ui.Modifier
+19: import androidx.compose.ui.draw.clip
+20: import androidx.compose.ui.graphics.Color
+21: import androidx.compose.ui.text.font.FontWeight
+22: import androidx.compose.ui.unit.dp
+23: import androidx.compose.ui.unit.sp
+24: import com.google.mlkit.common.model.DownloadConditions
+25: import com.google.mlkit.common.model.RemoteModelManager
+26: import com.google.mlkit.nl.translate.TranslateLanguage
+27: import com.google.mlkit.nl.translate.TranslateRemoteModel
+28: import kotlinx.coroutines.launch
+29: import java.io.File
+30: import java.util.Locale
+31: 
+32: @OptIn(ExperimentalMaterial3Api::class)
+33: @Composable
+34: fun SettingsScreen(
+35:     isModelReady: MutableState<Boolean>,
+36:     isDownloading: MutableState<Boolean>,
+37:     downloadProgress: MutableState<Float>,
+38:     targetLanguage: MutableState<String>,
+39:     targetLanguageTag: MutableState<String>,
+40:     forceOfflineTts: MutableState<Boolean>,
+41:     ttsEngine: StreamingTTSManager,
+42:     downloadManager: ModelDownloadManager,
+43:     mainActivityContext: android.content.Context
+44: ) {
+45:     val scrollState = rememberScrollState()
+46:     val coroutineScope = rememberCoroutineScope()
+47:     var showVoiceSettings by remember { mutableStateOf(false) }
+48:     var showDeleteConfirm by remember { mutableStateOf(false) }
+49:     
+50:     val TextPrimary = Color.White
+51:     val TextSecondary = Color.Gray
+52:     val CardBackground = Color(0xFF242424) // Darker card background to match mockup
+53:     val CardBorder = Color(0xFF3A3A3A)
+54:     val AccentCoral = Color(0xFFE8593C)
+55:     
+56:     val gemmaModelPath = downloadManager.getModelAbsolutePath()
+57: 
+58:     Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(horizontal = 20.dp)) {
+59:         Spacer(Modifier.height(40.dp))
+60: 
+61:         // HEADER
+62:         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+63:             Column {
+64:                 Text("Preferences", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+65:                 Text("App Customization & Engines", fontSize = 14.sp, color = TextSecondary)
+66:             }
+67:             // Removed the X cross mark as requested
+68:         }
+69: 
+70:         Spacer(Modifier.height(24.dp))
+71: 
+72:         // 1. GEMMA OFFLINE ENGINE CARD
+73:         ElevatedCard(
+74:             colors = CardDefaults.elevatedCardColors(containerColor = CardBackground),
+75:             modifier = Modifier.fillMaxWidth().border(1.dp, CardBorder, RoundedCornerShape(16.dp))
+76:         ) {
+77:             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+78:                 Row(
+79:                     modifier = Modifier.fillMaxWidth().clickable { advancedTuningExpanded = !advancedTuningExpanded }.padding(vertical = 4.dp),
+80:                     horizontalArrangement = Arrangement.SpaceBetween,
+81:                     verticalAlignment = Alignment.CenterVertically
+82:                 ) {
+83:                     Text("Advanced Tuning", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+84:                     Icon(
+85:                         if (advancedTuningExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, 
+86:                         contentDescription = null, 
+87:                         tint = TextSecondary
+88:                     )
+89:                 }
+90:                 
+91:                 if (advancedTuningExpanded) {
+92:                     Spacer(Modifier.height(16.dp))
+93: 
+94:                     Text("Translation Speed (VAD Delay)", color = TextPrimary, fontSize = 14.sp)
+95:                     Box(modifier = Modifier.fillMaxWidth()) {
+96:                         // Default mark at 25 (range 10..50) -> fraction = 15/40 = 0.375
+97:                         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(48.dp), contentAlignment = Alignment.CenterStart) {
+98:                             Box(modifier = Modifier.fillMaxHeight(0.4f).fillMaxWidth(0.375f).wrapContentWidth(Alignment.End)) {
+99:                                 Box(modifier = Modifier.width(2.dp).fillMaxHeight().background(Color.Gray.copy(alpha=0.5f)))
+100:                             }
+101:                         }
+102:                         Slider(
+103:                             value = vadFrames,
+104:                             onValueChange = { 
+105:                                 vadFrames = it 
+106:                                 prefs.vadWaitFrames = it.toInt()
+107:                             },
+108:                             valueRange = 10f..50f,
+109:                             steps = 39,
+110:                             colors = SliderDefaults.colors(thumbColor = AccentCoral, activeTrackColor = AccentCoral)
+111:                         )
+112:                     }
+113:                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+114:                         Text("${String.format(java.util.Locale.US, "%.1f", vadFrames / 25f)}s silence before translating", color = TextSecondary, fontSize = 12.sp)
+115:                         Text("Default: 1.0s", color = TextSecondary, fontSize = 12.sp)
+116:                     }
+117: 
+118:                     Spacer(Modifier.height(16.dp))
+119:                     HorizontalDivider(color = CardBorder, thickness = 1.dp)
+120:                     Spacer(Modifier.height(16.dp))
+121: 
+122:                     Text("Model Temperature (Creativity)", color = TextPrimary, fontSize = 14.sp)
+123:                     Box(modifier = Modifier.fillMaxWidth()) {
+124:                         // Default mark at 0.1 (range 0..1) -> fraction = 0.1
+125:                         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(48.dp), contentAlignment = Alignment.CenterStart) {
+126:                             Box(modifier = Modifier.fillMaxHeight(0.4f).fillMaxWidth(0.1f).wrapContentWidth(Alignment.End)) {
+127:                                 Box(modifier = Modifier.width(2.dp).fillMaxHeight().background(Color.Gray.copy(alpha=0.5f)))
+128:                             }
+129:                         }
+130:                         Slider(
+131:                             value = temp,
+132:                             onValueChange = { 
+133:                                 temp = it 
+134:                                 prefs.modelTemperature = it
+135:                             },
+136:                             valueRange = 0.0f..1.0f,
+137:                             colors = SliderDefaults.colors(thumbColor = AccentCoral, activeTrackColor = AccentCoral)
+138:                         )
+139:                     }
+140:                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+141:                         Text("Current: ${String.format(java.util.Locale.US, "%.2f", temp)}", color = TextSecondary, fontSize = 12.sp)
+142:                         Text("Default: 0.10", color = TextSecondary, fontSize = 12.sp)
+143:                     }
+144: 
+145:                     Spacer(Modifier.height(16.dp))
+146: 
+147:                     Text("Top-K (Vocabulary Breadth)", color = TextPrimary, fontSize = 14.sp)
+148:                     Box(modifier = Modifier.fillMaxWidth()) {
+149:                         // Default mark at 1 (range 1..40) -> fraction = 0.0
+150:                         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(48.dp), contentAlignment = Alignment.CenterStart) {
+151:                             Box(modifier = Modifier.fillMaxHeight(0.4f).fillMaxWidth(0.0f).wrapContentWidth(Alignment.End)) {
+152:                                 Box(modifier = Modifier.width(2.dp).fillMaxHeight().background(Color.Gray.copy(alpha=0.5f)))
+153:                             }
+154:                         }
+155:                         Slider(
+156:                             value = topK,
+157:                             onValueChange = { 
+158:                                 topK = it 
+159:                                 prefs.modelTopK = it.toInt()
+160:                             },
+161:                             valueRange = 1f..40f,
+162:                             steps = 38,
+163:                             colors = SliderDefaults.colors(thumbColor = AccentCoral, activeTrackColor = AccentCoral)
+164:                         )
+165:                     }
+166:                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+167:                         Text("Current: ${topK.toInt()}", color = TextSecondary, fontSize = 12.sp)
+168:                         Text("Default: 1", color = TextSecondary, fontSize = 12.sp)
+169:                     }
+170:                 }
+171:             }
+172:         }
+173: 
+174:                 Spacer(Modifier.height(20.dp))
+175: 
+176:                 // Progress Info
+177:                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+178:                     val statusText = if (isDownloading.value) "Downloading Language Data..." else if (isModelReady.value) "Installed & Ready" else "Available for Download"
+179:                     Text(statusText, color = TextSecondary, fontSize = 12.sp)
+180:                     Text("2.2 GB", color = TextSecondary, fontSize = 12.sp)
+181:                 }
+182: 
+183:                 Spacer(Modifier.height(8.dp))
+184: 
+185:                 if (isModelReady.value) {
+186:                     Button(
+187:                         onClick = { showDeleteConfirm = true },
+188:                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A1A)),
+189:                         shape = RoundedCornerShape(12.dp),
+190:                         modifier = Modifier.fillMaxWidth().border(1.dp, CardBorder, RoundedCornerShape(12.dp)).height(48.dp)
+191:                     ) {
+192:                         Text("Delete Gemma Model", color = AccentCoral, fontWeight = FontWeight.SemiBold)
+193:                     }
+194:                 } else if (isDownloading.value) {
+195:                     Box(
+196:                         modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1A1A1A))
+197:                     ) {
+198:                         Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(downloadProgress.value).background(AccentCoral))
+199:                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+200:                             Text("Downloading: ${(downloadProgress.value * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+201:                         }
+202:                     }
+203:                 } else {
+204:                     Button(
+205:                         onClick = {
+206:                             isDownloading.value = true
+207:                             downloadProgress.value = 0f
+208:                             coroutineScope.launch {
+209:                                 downloadManager.downloadModel(
+210:                                     onProgress = { progress -> downloadProgress.value = progress / 100f },
+211:                                     onComplete = { success -> 
+212:                                         isDownloading.value = false
+213:                                         if (success) isModelReady.value = true
+214:                                     }
+215:                                 )
+216:                             }
+217:                         },
+218:                         colors = ButtonDefaults.buttonColors(containerColor = AccentCoral),
+219:                         shape = RoundedCornerShape(12.dp),
+220:                         modifier = Modifier.fillMaxWidth().height(48.dp)
+221:                     ) {
+222:                         Text("Download Gemma", color = Color.White, fontWeight = FontWeight.SemiBold)
+223:                     }
+224:                 }
+225:                 
+226:                 // Removed the dummy 14 MB/s row here
+227:             }
+228:         }
+229:         
+230:         Spacer(Modifier.height(16.dp))
+231: 
+232:         // 2. ML KIT LANGUAGE PACKS
+233:         LanguagePacksCard(AccentCoral, CardBackground, CardBorder)
+234: 
+235:         Spacer(Modifier.height(16.dp))
+236: 
+237:         // 3. PREFERENCES CARD
+238:         var preferencesEnabled by remember { mutableStateOf(false) }
+239:         ElevatedCard(
+240:             colors = CardDefaults.elevatedCardColors(containerColor = CardBackground),
+241:             modifier = Modifier.fillMaxWidth().border(1.dp, CardBorder, RoundedCornerShape(16.dp))
+242:         ) {
+243:             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+244:                 Row(
+245:                     modifier = Modifier.fillMaxWidth(),
+246:                     horizontalArrangement = Arrangement.SpaceBetween,
+247:                     verticalAlignment = Alignment.CenterVertically
+248:                 ) {
+249:                     Text("Enable Background Translation", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+250:                     Switch(
+251:                         checked = preferencesEnabled,
+252:                         onCheckedChange = { preferencesEnabled = it },
+253:                         enabled = false,
+254:                         colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AccentCoral)
+255:                     )
+256:                 }
+257:                 Text("Coming Soon - Translate seamlessly while using other apps", fontSize = 12.sp, color = TextSecondary)
+258:             }
+259:         }
+260: 
+261:         Spacer(Modifier.height(16.dp))
+262: 
+263:         // 4. VOICE & SPEECH CARD
+264:         ElevatedCard(
+265:             colors = CardDefaults.elevatedCardColors(containerColor = CardBackground),
+266:             modifier = Modifier.fillMaxWidth().border(1.dp, CardBorder, RoundedCornerShape(16.dp)).clickable { showVoiceSettings = true }
+267:         ) {
+268:             Row(
+269:                 modifier = Modifier.padding(16.dp).fillMaxWidth(),
+270:                 horizontalArrangement = Arrangement.SpaceBetween,
+271:                 verticalAlignment = Alignment.CenterVertically
+272:             ) {
+273:                 Text("Voice & Speech", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+274:                 Row(verticalAlignment = Alignment.CenterVertically) {
+275:                     Text("Menu", color = TextSecondary, fontSize = 14.sp)
+276:                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+277:                 }
+278:             }
+279:         }
+280:         
+281:         Spacer(Modifier.height(16.dp))
+282: 
+283:         // 5. LEGAL & SUPPORT CARD
+284:         ElevatedCard(
+285:             colors = CardDefaults.elevatedCardColors(containerColor = CardBackground),
+286:             modifier = Modifier.fillMaxWidth().border(1.dp, CardBorder, RoundedCornerShape(16.dp))
+287:         ) {
+288:             Column(modifier = Modifier.fillMaxWidth()) {
+289:                 // Terms & Conditions
+290:                 var showTerms by remember { mutableStateOf(false) }
+291:                 Row(
+292:                     modifier = Modifier.fillMaxWidth().clickable { showTerms = true }.padding(16.dp),
+293:                     horizontalArrangement = Arrangement.SpaceBetween,
+294:                     verticalAlignment = Alignment.CenterVertically
+295:                 ) {
+296:                     Text("Terms and Conditions", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+297:                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+298:                 }
+299:                 
+300:                 HorizontalDivider(color = CardBorder, thickness = 1.dp)
+301:                 
+302:                 // Contact Us
+303:                 Row(
+304:                     modifier = Modifier.fillMaxWidth().clickable {
+305:                         val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
+306:                             data = android.net.Uri.parse("mailto:")
+307:                             putExtra(android.content.Intent.EXTRA_EMAIL, arrayOf("edumapstu@gmail.com"))
+308:                             putExtra(android.content.Intent.EXTRA_SUBJECT, "SyncDialect App Support")
+309:                         }
+310:                         mainActivityContext.startActivity(intent)
+311:                     }.padding(16.dp),
+312:                     horizontalArrangement = Arrangement.SpaceBetween,
+313:                     verticalAlignment = Alignment.CenterVertically
+314:                 ) {
+315:                     Text("Contact Us", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+316:                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+317:                 }
+318: 
+319:                 if (showTerms) {
+320:                     AlertDialog(
+321:                         onDismissRequest = { showTerms = false },
+322:                         containerColor = Color(0xFF1E1E1E),
+323:                         title = { Text("Terms and Conditions", color = Color.White) },
+324:                         text = {
+325:                             LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+326:                                 item {
+327:                                     Text(
+328:                                         "Welcome to SyncDialect.\n\n" +
+329:                                         "1. Privacy: All voice translations happen locally on your device. We do not upload, store, or sell your voice recordings.\n\n" +
+330:                                         "2. User Conduct: You agree not to use the app for any illegal purposes or to generate harmful content.\n\n" +
+331:                                         "3. Intellectual Property: The translation models are provided via Google ML Kit and Gemma. You must adhere to their respective terms of service.\n\n" +
+332:                                         "4. Liability: SyncDialect is provided \"as is\". We are not responsible for translation inaccuracies or any consequences arising from misinterpretation.\n\n" +
+333:                                         "5. AI Limitations: Machine learning models may occasionally produce hallucinatory or incorrect text. You are responsible for verifying critical translations.\n\n" +
+334:                                         "Contact us at edumapstu@gmail.com for any questions.",
+335:                                         color = Color.LightGray, fontSize = 14.sp
+336:                                     )
+337:                                 }
+338:                             }
+339:                         },
+340:                         confirmButton = {
+341:                             TextButton(onClick = { showTerms = false }) {
+342:                                 Text("Close", color = AccentCoral)
+343:                             }
+344:                         }
+345:                     )
+346:                 }
+347:             }
+348:         }
+349:         
+350:         Spacer(Modifier.height(16.dp))
+351: 
+352:         // 6. ADVANCED TUNING CARD
+353:         val prefs = remember { AppPreferences(mainActivityContext) }
+354:         var advancedTuningExpanded by remember { mutableStateOf(false) }
+355:         var vadFrames by remember { mutableStateOf(prefs.vadWaitFrames.toFloat()) }
+356:         var temp by remember { mutableStateOf(prefs.modelTemperature) }
+357:         var topK by remember { mutableStateOf(prefs.modelTopK.toFloat()) }
+358: 
+359:         ElevatedCard(
+360:             colors = CardDefaults.elevatedCardColors(containerColor = CardBackground),
+361:             modifier = Modifier.fillMaxWidth().border(1.dp, CardBorder, RoundedCornerShape(16.dp))
+362:         ) {
+363:             Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+364:                 Text("Advanced Tuning", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+365:                 Spacer(Modifier.height(16.dp))
+366: 
+367:                 Text("Translation Speed (VAD Delay)", color = TextPrimary, fontSize = 14.sp)
+368:                 Slider(
+369:                     value = vadFrames,
+370:                     onValueChange = { 
+371:                         vadFrames = it 
+372:                         prefs.vadWaitFrames = it.toInt()
+373:                     },
+374:                     valueRange = 10f..50f,
+375:                     steps = 39,
+376:                     colors = SliderDefaults.colors(thumbColor = AccentCoral, activeTrackColor = AccentCoral)
+377:                 )
+378:                 Text("${String.format(Locale.US, "%.1f", vadFrames / 25f)}s silence before translating", color = TextSecondary, fontSize = 12.sp)
+379: 
+380:                 Spacer(Modifier.height(16.dp))
+381:                 HorizontalDivider(color = CardBorder, thickness = 1.dp)
+382:                 Spacer(Modifier.height(16.dp))
+383: 
+384:                 Text("Model Temperature (Creativity)", color = TextPrimary, fontSize = 14.sp)
+385:                 Slider(
+386:                     value = temp,
+387:                     onValueChange = { 
+388:                         temp = it 
+389:                         prefs.modelTemperature = it
+390:                     },
+391:                     valueRange = 0.0f..1.0f,
+392:                     colors = SliderDefaults.colors(thumbColor = AccentCoral, activeTrackColor = AccentCoral)
+393:                 )
+394:                 Text("Current: ${String.format(Locale.US, "%.2f", temp)}", color = TextSecondary, fontSize = 12.sp)
+395: 
+396:                 Spacer(Modifier.height(16.dp))
+397: 
+398:                 Text("Top-K (Vocabulary Breadth)", color = TextPrimary, fontSize = 14.sp)
+399:                 Slider(
+400:                     value = topK,
+401:                     onValueChange = { 
+402:                         topK = it 
+403:                         prefs.modelTopK = it.toInt()
+404:                     },
+405:                     valueRange = 1f..40f,
+406:                     steps = 38,
+407:                     colors = SliderDefaults.colors(thumbColor = AccentCoral, activeTrackColor = AccentCoral)
+408:                 )
+409:                 Text("Current: ${topK.toInt()}", color = TextSecondary, fontSize = 12.sp)
+410:             }
+411:         }
+412:         
+413:         Spacer(Modifier.height(32.dp))
+414:         Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+415:             Text("Powered by Gemma", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+416:             Text("Google Gemma 2B IT (Instruction Tuned)", color = TextSecondary, fontSize = 10.sp)
+417:         }
+418:         Spacer(Modifier.height(140.dp))
+419:     }
+420: 
+421:     if (showDeleteConfirm) {
+422:         AlertDialog(
+423:             onDismissRequest = { showDeleteConfirm = false },
+424:             containerColor = Color(0xFF1E1E1E),
+425:             title = { Text("Delete Gemma Engine?", color = Color.White) },
+426:             text = { Text("This will remove the 2.2GB offline LLM from your device. You will need to re-download it to use Premium AI Translation.", color = Color.LightGray) },
+427:             confirmButton = {
+428:                 Button(
+429:                     onClick = {
+430:                         val f = File(gemmaModelPath)
+431:                         if (f.exists()) f.delete()
+432:                         isModelReady.value = false
+433:                         showDeleteConfirm = false
+434:                     },
+435:                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+436:                 ) {
+437:                     Text("Delete", color = Color.White)
+438:                 }
+439:             },
+440:             dismissButton = {
+441:                 TextButton(onClick = { showDeleteConfirm = false }) {
+442:                     Text("Cancel", color = AccentCoral)
+443:                 }
+444:             }
+445:         )
+446:     }
+447: 
+448:     if (showVoiceSettings) {
+449:         VoiceSettingsDialog(targetLanguage.value, targetLanguageTag.value, ttsEngine, forceOfflineTts, AccentCoral) { showVoiceSettings = false }
+450:     }
+451: }
+452: 
+453: // Helper to get flag emoji from locale tag
+454: fun getFlagEmoji(localeTag: String): String {
+455:     val locale = Locale.forLanguageTag(localeTag)
+456:     val countryCode = locale.country
+457:     if (countryCode.isEmpty()) {
+458:         // Fallbacks for languages without clear country codes in ML Kit
+459:         return when (locale.language) {
+460:             "en" -> "🇺🇸"
+461:             "es" -> "🇪🇸"
+462:             "fr" -> "🇫🇷"
+463:             "de" -> "🇩🇪"
+464:             "it" -> "🇮🇹"
+465:             "ja" -> "🇯🇵"
+466:             "ko" -> "🇰🇷"
+467:             "zh" -> "🇨🇳"
+468:             "hi" -> "🇮🇳"
+469:             "ru" -> "🇷🇺"
+470:             "ar" -> "🇸🇦"
+471:             "pt" -> "🇧🇷"
+472:             "tr" -> "🇹🇷"
+473:             "ur" -> "🇵🇰"
+474:             "nl" -> "🇳🇱"
+475:             else -> "🌐"
+476:         }
+477:     }
+478:     val firstLetter = Character.codePointAt(countryCode, 0) - 0x41 + 0x1F1E6
+479:     val secondLetter = Character.codePointAt(countryCode, 1) - 0x41 + 0x1F1E6
+480:     return String(Character.toChars(firstLetter)) + String(Character.toChars(secondLetter))
+481: }
+482: 
+483: @OptIn(ExperimentalMaterial3Api::class)
+484: @Composable
+485: fun LanguagePacksCard(accentColor: Color, cardBackground: Color, cardBorder: Color) {
+486:     var downloadedModels by remember { mutableStateOf<Set<String>>(emptySet()) }
+487:     var downloadingModels by remember { mutableStateOf<Set<String>>(emptySet()) }
+488:     var isChecking by remember { mutableStateOf(true) }
+489:     var showAddDialog by remember { mutableStateOf(false) }
+490:     var languageToDelete by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+491:     
+492:     val allTags = TranslateLanguage.getAllLanguages()
+493:     val modelManager = RemoteModelManager.getInstance()
+494: 
+495:     val checkModels = {
+496:         modelManager.getDownloadedModels(TranslateRemoteModel::class.java)
+497:             .addOnSuccessListener { models ->
+498:                 downloadedModels = models.map { it.language }.toSet()
+499:                 isChecking = false
+500:             }
+501:             .addOnFailureListener {
+502:                 isChecking = false
+503:             }
+504:     }
+505:     
+506:     LaunchedEffect(Unit) {
+507:         checkModels()
+508:     }
+509: 
+510:     val allLanguages = allTags.map { tag ->
+511:         val displayName = Locale.forLanguageTag(tag).displayLanguage.replaceFirstChar { it.uppercase() }
+512:         val flag = getFlagEmoji(tag)
+513:         Triple(displayName, tag, flag)
+514:     }.sortedBy { it.first }
+515: 
+516:     val installed = allLanguages.filter { downloadedModels.contains(it.second) }
+517:     val available = allLanguages.filter { !downloadedModels.contains(it.second) && !downloadingModels.contains(it.second) }.take(5) // Show top 5 for visual cleanliness, "Manage Packs" opens full list
+518: 
+519:     ElevatedCard(
+520:         colors = CardDefaults.elevatedCardColors(containerColor = cardBackground),
+521:         modifier = Modifier.fillMaxWidth().border(1.dp, cardBorder, RoundedCornerShape(16.dp))
+522:     ) {
+523:         Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+524:             // Header Row
+525:             Row(verticalAlignment = Alignment.CenterVertically) {
+526:                 Box(
+527:                     modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(accentColor),
+528:                     contentAlignment = Alignment.Center
+529:                 ) {
+530:                     Icon(Icons.Default.Language, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+531:                 }
+532:                 Spacer(Modifier.width(12.dp))
+533:                 Text("Language Packs", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+534:             }
+535:             
+536:             Spacer(Modifier.height(16.dp))
+537:             
+538:             if (isChecking) {
+539:                 CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).size(24.dp), color = accentColor)
+540:             } else {
+541:                 if (installed.isNotEmpty()) {
+542:                     Text("Installed", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+543:                     installed.forEach { (displayName, tag, flag) ->
+544:                         Row(
+545:                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+546:                             horizontalArrangement = Arrangement.SpaceBetween,
+547:                             verticalAlignment = Alignment.CenterVertically
+548:                         ) {
+549:                             Row(verticalAlignment = Alignment.CenterVertically) {
+550:                                 Text(flag, fontSize = 20.sp)
+551:                                 Spacer(Modifier.width(12.dp))
+552:                                 Text(displayName, color = Color.White, fontSize = 16.sp)
+553:                             }
+554:                             Row(verticalAlignment = Alignment.CenterVertically) {
+555:                                 Text("~30 MB", color = Color.Gray, fontSize = 14.sp)
+556:                                 Spacer(Modifier.width(12.dp))
+557:                                 Icon(
+558:                                     imageVector = Icons.Default.Delete,
+559:                                     contentDescription = "Delete",
+560:                                     tint = Color.Gray,
+561:                                     modifier = Modifier.size(20.dp).clickable {
+562:                                         languageToDelete = Triple(displayName, tag, flag)
+563:                                     }
+564:                                 )
+565:                             }
+566:                         }
+567:                     }
+568:                     Spacer(Modifier.height(16.dp))
+569:                 }
+570:                 
+571:                 Button(
+572:                     onClick = { showAddDialog = true },
+573:                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+574:                     shape = RoundedCornerShape(12.dp),
+575:                     modifier = Modifier.fillMaxWidth().height(48.dp)
+576:                 ) {
+577:                     Text("Download More Languages", color = Color.White, fontWeight = FontWeight.SemiBold)
+578:                 }
+579: 
+580:                 // Add Dialog (unchanged functionally, just styled)
+581:                 if (showAddDialog) {
+582:                     val fullAvailable = allLanguages.filter { !downloadedModels.contains(it.second) }
+583:                     AlertDialog(
+584:                         onDismissRequest = { showAddDialog = false },
+585:                         containerColor = Color(0xFF1E1E1E),
+586:                         title = { Text("Available Languages", color = Color.White) },
+587:                         text = {
+588:                             LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+589:                                 items(fullAvailable.size) { idx ->
+590:                                     val lang = fullAvailable[idx]
+591:                                     Row(
+592:                                         modifier = Modifier.fillMaxWidth().clickable {
+593:                                             showAddDialog = false
+594:                                             val tag = lang.second
+595:                                             val model = TranslateRemoteModel.Builder(tag).build()
+596:                                             downloadingModels = downloadingModels + tag
+597:                                             modelManager.download(model, DownloadConditions.Builder().build())
+598:                                                 .addOnSuccessListener {
+599:                                                     downloadingModels = downloadingModels - tag
+600:                                                     checkModels()
+601:                                                 }
+602:                                         }.padding(16.dp),
+603:                                         verticalAlignment = Alignment.CenterVertically
+604:                                     ) {
+605:                                         Text(lang.third, fontSize = 20.sp)
+606:                                         Spacer(Modifier.width(12.dp))
+607:                                         Text(lang.first, color = Color.White, fontSize = 18.sp)
+608:                                     }
+609:                                 }
+610:                             }
+611:                         },
+612:                         confirmButton = {
+613:                             TextButton(onClick = { showAddDialog = false }) {
+614:                                 Text("Close", color = accentColor)
+615:                             }
+616:                         }
+617:                     )
+618:                 }
+619: 
+620:                 // Delete Confirmation Dialog
+621:                 languageToDelete?.let { (displayName, tag, flag) ->
+622:                     AlertDialog(
+623:                         onDismissRequest = { languageToDelete = null },
+624:                         containerColor = Color(0xFF1E1E1E),
+625:                         title = { Text("Delete $displayName?", color = Color.White) },
+626:                         text = { Text("Are you sure you want to remove the $displayName translation pack? You will need an internet connection to download it again.", color = Color.LightGray) },
+627:                         confirmButton = {
+628:                             Button(
+629:                                 onClick = {
+630:                                     val model = TranslateRemoteModel.Builder(tag).build()
+631:                                     modelManager.deleteDownloadedModel(model).addOnSuccessListener {
+632:                                         checkModels()
+633:                                     }
+634:                                     languageToDelete = null
+635:                                 },
+636:                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+637:                             ) {
+638:                                 Text("Delete", color = Color.White)
+639:                             }
+640:                         },
+641:                         dismissButton = {
+642:                             TextButton(onClick = { languageToDelete = null }) {
+643:                                 Text("Cancel", color = accentColor)
+644:                             }
+645:                         }
+646:                     )
+647:                 }
+648:             }
+649:         }
+650:     }
+651: }
+652: 
+653: data class FormattedVoice(val voice: android.speech.tts.Voice, val gender: String, val type: String, val displayName: String, val originalName: String)
+654: 
+655: @OptIn(ExperimentalMaterial3Api::class)
+656: @Composable
+657: fun VoiceSettingsDialog(
+658:     targetLanguage: String,
+659:     targetLanguageTag: String,
+660:     ttsEngine: StreamingTTSManager,
+661:     forceOfflineTts: MutableState<Boolean>,
+662:     accentColor: Color,
+663:     onDismiss: () -> Unit
+664: ) {
+665:     var availableVoices by remember { mutableStateOf<List<FormattedVoice>>(emptyList()) }
+666:     var expanded by remember { mutableStateOf(false) }
+667:     var selectedVoiceName by remember { mutableStateOf("Default") }
+668:     var selectedOriginalVoiceName by remember { mutableStateOf("") }
+669:     val context = androidx.compose.ui.platform.LocalContext.current
+670:     
+671:     LaunchedEffect(targetLanguageTag) {
+672:         val voices = ttsEngine.getAvailableVoices(targetLanguageTag)
+673:         
+674:         val formatted = voices.map { voice ->
+675:             val isNetwork = voice.isNetworkConnectionRequired
+676:             val type = if (isNetwork) "Network" else "Offline"
+677:             val parts = voice.name.split("-")
+678:             
+679:             val isFemale = parts.any { it.equals("female", true) }
+680:             val isMale = parts.any { it.equals("male", true) }
+681:             val gender = if (isFemale) "Female" else if (isMale) "Male" else "Any"
+682:             
+683:             val genderLabel = if (isFemale) "(Female)" else if (isMale) "(Male)" else ""
+684:             
+685:             var desc = voice.locale.displayName
+686:             if (parts.size >= 4) {
+687:                  val localeDesc = voice.locale.displayCountry.takeIf { it.isNotEmpty() } ?: voice.locale.displayName
+688:                  desc = "$localeDesc $genderLabel"
+689:             } else {
+690:                  desc = "$desc $genderLabel"
+691:             }
+692:             
+693:             FormattedVoice(voice, gender, type, desc.trim(), voice.name)
+694:         }
+695:         
+696:         // Sort: Offline first, then Network
+697:         availableVoices = formatted.sortedBy { it.voice.isNetworkConnectionRequired }
+698:         
+699:         if (availableVoices.isNotEmpty()) {
+700:             val firstVoice = availableVoices.first()
+701:             selectedVoiceName = "${firstVoice.displayName} - ${firstVoice.type}"
+702:             selectedOriginalVoiceName = firstVoice.originalName
+703:         }
+704:     }
+705: 
+706:     BasicAlertDialog(onDismissRequest = onDismiss) {
+707:         Surface(
+708:             shape = RoundedCornerShape(24.dp),
+709:             color = Color(0xFF1A1A1A),
+710:             modifier = Modifier.fillMaxWidth().border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+711:         ) {
+712:             Column(modifier = Modifier.padding(24.dp)) {
+713:                 Text("Voice Settings", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+714:                 Spacer(Modifier.height(8.dp))
+715:                 Text("Current Target: $targetLanguage", color = Color.Gray, fontSize = 14.sp)
+716:                 
+717:                 Spacer(Modifier.height(24.dp))
+718:                 
+719:                 Row(
+720:                     modifier = Modifier.fillMaxWidth(),
+721:                     horizontalArrangement = Arrangement.SpaceBetween,
+722:                     verticalAlignment = Alignment.CenterVertically
+723:                 ) {
+724:                     Text("Force Offline TTS", color = Color.White, fontSize = 16.sp)
+725:                     Switch(
+726:                         checked = forceOfflineTts.value,
+727:                         onCheckedChange = { forceOfflineTts.value = it },
+728:                         colors = SwitchDefaults.colors(checkedThumbColor = accentColor, checkedTrackColor = accentColor.copy(alpha=0.3f))
+729:                     )
+730:                 }
+731:                 Spacer(Modifier.height(8.dp))
+732:                 Text("If enabled, the app will only use voices downloaded to your phone. If disabled, it may use higher quality network voices.", color = Color.Gray, fontSize = 12.sp)
+733: 
+734:                 Spacer(Modifier.height(24.dp))
+735:                 Text("Select Accent / Voice", color = Color.White, fontSize = 16.sp)
+736:                 Spacer(Modifier.height(8.dp))
+737: 
+738:                 ExposedDropdownMenuBox(
+739:                     expanded = expanded,
+740:                     onExpandedChange = { expanded = !expanded }
+741:                 ) {
+742:                     OutlinedTextField(
+743:                         value = selectedVoiceName,
+744:                         onValueChange = {},
+745:                         readOnly = true,
+746:                         colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+747:                             focusedBorderColor = accentColor,
+748:                             unfocusedBorderColor = Color.DarkGray,
+749:                             focusedTextColor = Color.White,
+750:                             unfocusedTextColor = Color.LightGray
+751:                         ),
+752:                         modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+753:                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
+754:                     )
+755:                     ExposedDropdownMenu(
+756:                         expanded = expanded,
+757:                         onDismissRequest = { expanded = false },
+758:                         containerColor = Color(0xFF1A1A1A),
+759:                         modifier = Modifier.heightIn(max = 250.dp)
+760:                     ) {
+761:                         if (availableVoices.isEmpty()) {
+762:                             DropdownMenuItem(text = { Text("No voices found matching criteria", color = Color.Gray) }, onClick = { expanded = false })
+763:                         } else {
+764:                             availableVoices.forEach { formattedVoice ->
+765:                                 val formattedName = "${formattedVoice.displayName} - ${formattedVoice.type}"
+766:                                 DropdownMenuItem(
+767:                                     text = { 
+768:                                         Column {
+769:                                             Text(formattedVoice.displayName, color = Color.White)
+770:                                             Text(formattedVoice.type, color = if (formattedVoice.type == "Offline") Color(0xFF4CAF50) else Color(0xFF2196F3), fontSize = 12.sp)
+771:                                         }
+772:                                     },
+773:                                     onClick = {
+774:                                         selectedVoiceName = formattedName
+775:                                         selectedOriginalVoiceName = formattedVoice.originalName
+776:                                         ttsEngine.setSpecificVoice(formattedVoice.originalName)
+777:                                         expanded = false
+778:                                     }
+779:                                 )
+780:                             }
+781:                         }
+782:                     }
+783:                 }
+784:                 
+785:                 Spacer(Modifier.height(24.dp))
+786:                 
+787:                 Button(
+788:                     onClick = { ttsEngine.playText("This is a demo of the translation voice.") },
+789:                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+790:                     modifier = Modifier.fillMaxWidth().height(48.dp)
+791:                 ) {
+792:                     Text("Play Demo Voice", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+793:                 }
+794: 
+795:                 Spacer(Modifier.height(16.dp))
+796:                 
+797:                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+798:                     TextButton(onClick = onDismiss) {
+799:                         Text("Cancel", color = Color.Gray, fontWeight = FontWeight.Bold)
+800:                     }
+801:                     Spacer(Modifier.width(8.dp))
+802:                     TextButton(onClick = { 
+803:                         if (selectedOriginalVoiceName.isNotEmpty()) {
+804:                             ttsEngine.saveVoice(selectedOriginalVoiceName)
+805:                             android.widget.Toast.makeText(context, "$selectedVoiceName selected", android.widget.Toast.LENGTH_SHORT).show()
+806:                         }
+807:                         onDismiss()
+808:                     }) {
+809:                         Text("Save", color = accentColor, fontWeight = FontWeight.Bold)
+810:                     }
+811:                 }
+812:             }
+813:         }
+814:     }
+815: }
