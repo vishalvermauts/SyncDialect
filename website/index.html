@@ -42,76 +42,6 @@
             <h1>Enterprise-grade <br><span class="rotating-text">translation.</span></h1>
             <p>SyncDialect leverages the power of Gemma 2B and Google ML Kit to deliver instantaneous, highly accurate voice translation entirely offline. Absolute privacy, without compromising performance.</p>
             <a href="#" class="cta-button">Get it on Google Play</a>
-            
-            <!-- Interactive GSAP Pipeline Visualizer -->
-            <div class="pipeline-svg-container" style="max-width: 600px; margin: 48px auto 0; padding: 20px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 20px; box-shadow: inset 0 0 20px rgba(255,255,255,0.01); opacity: 0; transform: translateY(20px);">
-                <svg viewBox="0 0 600 200" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: auto; overflow: visible;">
-                    <defs>
-                        <linearGradient id="path-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stop-color="rgba(255,255,255,0.1)"/>
-                            <stop offset="50%" stop-color="#E8593C" stop-opacity="0.8"/>
-                            <stop offset="100%" stop-color="rgba(255,255,255,0.1)"/>
-                        </linearGradient>
-                        <radialGradient id="glow-grad">
-                            <stop offset="0%" stop-color="#E8593C" stop-opacity="0.5"/>
-                            <stop offset="100%" stop-color="#E8593C" stop-opacity="0"/>
-                        </radialGradient>
-                    </defs>
-
-                    <!-- Pipeline path -->
-                    <path id="pipeline-path" d="M 80 100 Q 200 40 300 100 T 520 100" stroke="url(#path-grad)" stroke-width="2.5" stroke-dasharray="6 4" />
-
-                    <!-- Microphone Node -->
-                    <g transform="translate(80, 100)">
-                        <circle r="24" fill="#09090b" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
-                        <circle class="mic-wave" r="32" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1" />
-                        <circle class="mic-wave" r="40" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1" />
-                        <path d="M -5 -9 C -5 -12 -3 -14 0 -14 C 3 -14 5 -12 5 -9 L 5 0 C 5 3 3 5 0 5 C -3 5 -5 3 -5 0 Z" fill="#ffffff" />
-                        <path d="M -9 -2 C -9 3 -4 7 0 7 C 4 7 9 3 9 -2" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" />
-                        <line x1="0" y1="7" x2="0" y2="12" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" />
-                    </g>
-
-                    <!-- Gemma CPU Node -->
-                    <g id="gemma-node" transform="translate(300, 100)">
-                        <rect x="-30" y="-30" width="60" height="60" rx="10" fill="#09090b" stroke="#E8593C" stroke-width="2" />
-                        <rect x="-24" y="-24" width="48" height="48" rx="6" fill="url(#glow-grad)" opacity="0.4" />
-                        
-                        <line x1="-35" y1="-15" x2="-30" y2="-15" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="-35" y1="0" x2="-30" y2="0" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="-35" y1="15" x2="-30" y2="15" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        
-                        <line x1="30" y1="-15" x2="35" y2="-15" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="30" y1="0" x2="35" y2="0" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="30" y1="15" x2="35" y2="15" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        
-                        <line x1="-15" y1="-35" x2="-15" y2="-30" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="0" y1="-35" x2="0" y2="-30" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="15" y1="-35" x2="15" y2="-30" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-
-                        <line x1="-15" y1="30" x2="-15" y2="35" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="0" y1="30" x2="0" y2="35" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-                        <line x1="15" y1="30" x2="15" y2="35" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
-
-                        <text x="0" y="4" fill="#FAFAFA" font-size="9" font-weight="800" text-anchor="middle" letter-spacing="0.05em">GEMMA</text>
-                    </g>
-
-                    <!-- Speaker/Output Node -->
-                    <g transform="translate(520, 100)">
-                        <circle r="24" fill="#09090b" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
-                        <path class="speaker-wave" d="M 6 -8 A 10 10 0 0 1 6 8" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                        <path class="speaker-wave" d="M 11 -13 A 17 17 0 0 1 11 13" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                        <path d="M -7 -5 L -4 -5 L 1 -10 L 1 10 L -4 5 L -7 5 Z" fill="#ffffff" />
-                    </g>
-
-                    <!-- Flowing Particle -->
-                    <circle id="data-particle" r="5" fill="#E8593C" />
-                </svg>
-                <div style="display: flex; justify-content: space-between; margin-top: 12px; font-size: 0.7rem; color: var(--text-muted); font-weight: 600; letter-spacing: 0.08em;">
-                    <span>AUDIO INPUT (VAD)</span>
-                    <span>OFFLINE ENGINE (LITERT)</span>
-                    <span>SPEECH SYNTHESIS (TTS)</span>
-                </div>
-            </div>
         </div>
     </header>
 
@@ -122,7 +52,7 @@
             <p>Designed for professionals, travelers, and businesses who require absolute reliability in any environment.</p>
         </div>
         
-        <div class="slideshow-container">
+                <div class="slideshow-container">
             <div class="slideshow-visuals">
                 <div class="phone-frame">
                     <img src="assets/1.jpg" alt="Translation Interface" class="slide-image active" id="slide-img-1">
@@ -154,7 +84,7 @@
                 </div>
             </div>
         </div>
-    </section>
+</section>
 
     <!-- Architecture & Tech Stack -->
     <div id="architecture" class="bg-light">
@@ -190,12 +120,67 @@
         <p>&copy; 2026 SyncDialect. All rights reserved.</p>
     </footer>
 
-    <!-- GSAP Animations & Plugins -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/MotionPathPlugin.min.js"></script>
-    
-    <!-- Custom script entry -->
-    <script src="script.js"></script>
+
+    <script>
+        let currentSlide = 1;
+        const totalSlides = 4;
+        let slideInterval;
+
+        function switchSlide(slideIndex) {
+            // Update active states for images
+            document.querySelectorAll('.slide-image').forEach((img, index) => {
+                if (index + 1 === slideIndex) {
+                    img.classList.add('active');
+                } else {
+                    img.classList.remove('active');
+                }
+            });
+
+            // Update active states for feature blocks
+            document.querySelectorAll('.feature-block').forEach((block, index) => {
+                if (index + 1 === slideIndex) {
+                    block.classList.add('active');
+                } else {
+                    block.classList.remove('active');
+                }
+            });
+
+            currentSlide = slideIndex;
+            resetInterval();
+        }
+
+        function nextSlide() {
+            currentSlide = currentSlide >= totalSlides ? 1 : currentSlide + 1;
+            switchSlide(currentSlide);
+        }
+
+        function resetInterval() {
+            clearInterval(slideInterval);
+            slideInterval = setInterval(nextSlide, 5000);
+        }
+
+        
+        // Rotating Text
+        const words = ["translation.", "traducción.", "traduction.", "übersetzung.", "ترجمة.", "翻译."];
+        let wordIndex = 0;
+        const rotatingText = document.querySelector('.rotating-text');
+        
+        if(rotatingText) {
+            setInterval(() => {
+                rotatingText.classList.remove('fade-in');
+                rotatingText.classList.add('fade-out');
+                
+                setTimeout(() => {
+                    wordIndex = (wordIndex + 1) % words.length;
+                    rotatingText.textContent = words[wordIndex];
+                    rotatingText.classList.remove('fade-out');
+                    rotatingText.classList.add('fade-in');
+                }, 400); // Wait for fade out
+            }, 3000);
+        }
+
+        // Start the slideshow
+        resetInterval();
+    </script>
 </body>
 </html>

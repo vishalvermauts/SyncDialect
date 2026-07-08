@@ -139,7 +139,7 @@ nav {
     font-size: 4rem;
     font-weight: 700;
     white-space: nowrap;
-    cursor: pointer;
+    animation: floatAnim 20s linear infinite;
     opacity: 0;
 }
 @keyframes floatAnim {
