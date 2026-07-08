@@ -510,3 +510,27 @@ footer {
     .span-2x2 .bento-image-wrapper { width: 100%; height: 50%; bottom: 0; left: 0; right: 0; }
     .nav-links { display: none; }
 }
+
+/* Background Motion Path Styling */
+.hero-motion-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.12; /* Keep it subtle */
+}
+
+/* Broken Text Character Styling */
+.broken-text {
+    cursor: pointer;
+    display: inline-block;
+}
+
+.broken-char {
+    display: inline-block;
+    position: relative;
+    user-select: none;
+}

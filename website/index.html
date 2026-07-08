@@ -16,7 +16,7 @@
         <div class="nav-container">
             <a href="index.html" class="logo">
                 <img src="assets/default.png" alt="SyncDialect Logo" class="nav-icon">
-                SyncDialect
+                <span class="broken-text">SyncDialect</span>
             </a>
             <div class="nav-links">
                 <a href="#features">Features</a>
@@ -39,8 +39,20 @@
             <span class="float-word w7">Namaste</span>
             <span class="float-word w8">Привет</span>
         </div>
+        
+        <!-- Background Motion Path SVG -->
+        <div class="hero-motion-container">
+            <svg viewBox="0 0 1440 800" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%;">
+                <path id="motion-path" d="M -100 200 C 300 50, 600 750, 1000 400 C 1200 200, 1300 600, 1600 300" stroke="rgba(255, 255, 255, 0.08)" stroke-width="2" stroke-dasharray="8 8" />
+                <g id="motion-particle">
+                    <circle r="6" fill="#E8593C" />
+                    <circle r="12" fill="none" stroke="#E8593C" stroke-width="1.5" opacity="0.5" />
+                </g>
+            </svg>
+        </div>
+
         <div class="hero-content">
-            <h1>Enterprise-grade <br><span class="rotating-text">translation.</span></h1>
+            <h1><span class="broken-text">Enterprise-grade</span> <br><span class="rotating-text">translation.</span></h1>
             <p>SyncDialect leverages the power of Gemma 2B and Google ML Kit to deliver instantaneous, highly accurate voice translation entirely offline. Absolute privacy, without compromising performance.</p>
             <a href="#" class="cta-button">Get it on Google Play</a>
         </div>
@@ -183,5 +195,12 @@
         // Start the slideshow
         resetInterval();
     </script>
+    
+    <!-- GSAP Animations & Plugins -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/MotionPathPlugin.min.js"></script>
+    
+    <!-- Custom script entry -->
+    <script src="script.js"></script>
 </body>
 </html>
