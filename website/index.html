@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyncDialect | 100% Offline AI Translation</title>
+    <meta name="description" content="SyncDialect is a premium, 100% offline AI voice translation application powered by Gemma and Google ML Kit.">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav>
+        <div class="nav-container">
+            <a href="index.html" class="logo">
+                <img src="assets/default.png" alt="SyncDialect Logo" class="nav-icon">
+                SyncDialect
+            </a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#architecture">Architecture</a>
+                <a href="privacy.html">Privacy</a>
+                <a href="terms.html">Terms</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero">
+        <div class="floating-languages">
+            <span class="float-word w1">Hola</span>
+            <span class="float-word w2">Bonjour</span>
+            <span class="float-word w3">Hallo</span>
+            <span class="float-word w4">مرحبا</span>
+            <span class="float-word w5">你好</span>
+            <span class="float-word w6">Ciao</span>
+            <span class="float-word w7">Namaste</span>
+            <span class="float-word w8">Привет</span>
+        </div>
+        <div class="hero-content">
+            <h1>Enterprise-grade <br><span class="rotating-text">translation.</span></h1>
+            <p>SyncDialect leverages the power of Gemma 2B and Google ML Kit to deliver instantaneous, highly accurate voice translation entirely offline. Absolute privacy, without compromising performance.</p>
+            <a href="#" class="cta-button">Get it on Google Play</a>
+        </div>
+    </header>
+
+    <!-- Bento Grid Features Section -->
+    <section id="features">
+        <div class="section-header">
+            <h2>Uncompromising Capabilities</h2>
+            <p>Designed for professionals, travelers, and businesses who require absolute reliability in any environment.</p>
+        </div>
+        
+                <div class="slideshow-container">
+            <div class="slideshow-visuals">
+                <div class="phone-frame">
+                    <img src="assets/1.jpg" alt="Translation Interface" class="slide-image active" id="slide-img-1">
+                    <img src="assets/5.jpg" alt="Language Packs" class="slide-image" id="slide-img-2">
+                    <img src="assets/3.jpg" alt="Data Sovereignty" class="slide-image" id="slide-img-3">
+                    <img src="assets/2.jpg" alt="Gemma Offline Engine" class="slide-image" id="slide-img-4">
+                </div>
+            </div>
+            
+            <div class="slideshow-content">
+                <div class="feature-block active" onclick="switchSlide(1)">
+                    <h3>Real-Time Neural Translation</h3>
+                    <p>Speak naturally. Our advanced on-device neural network pipelines transcribe and translate your voice instantly with ultra-low latency, effectively eliminating conversational lag.</p>
+                </div>
+                
+                <div class="feature-block" onclick="switchSlide(2)">
+                    <h3>60+ Language Packs</h3>
+                    <p>Modular architecture allows you to download only the language packs you need. Conserve storage space while maintaining a comprehensive global communication toolkit offline.</p>
+                </div>
+                
+                <div class="feature-block" onclick="switchSlide(3)">
+                    <h3>Absolute Data Sovereignty</h3>
+                    <p>We believe your conversations belong to you. SyncDialect operates without a persistent internet connection. No cloud processing. No voice data logging. Complete privacy.</p>
+                </div>
+                
+                <div class="feature-block" onclick="switchSlide(4)">
+                    <h3>Gemma Offline AI</h3>
+                    <p>Powered by the lightweight 2B LLM engine running entirely locally on your phone. Experience context-aware translations that understand nuance better than traditional dictionary-based models.</p>
+                </div>
+            </div>
+        </div>
+</section>
+
+    <!-- Architecture & Tech Stack -->
+    <div id="architecture" class="bg-light">
+        <div class="container">
+            <div class="section-header" style="margin-bottom: 3rem;">
+                <h2>Built on Cutting-Edge Technology</h2>
+                <p>SyncDialect is engineered from the ground up using state-of-the-art native Android tooling.</p>
+            </div>
+            <div class="tech-stack">
+                <div class="tech-item">
+                    <span>Google ML Kit</span>
+                    <p style="font-weight: 400; font-size: 0.9rem; text-align: center; max-width: 200px;">On-device translation inference</p>
+                </div>
+                <div class="tech-item">
+                    <span>Gemma 2B LLM</span>
+                    <p style="font-weight: 400; font-size: 0.9rem; text-align: center; max-width: 200px;">Contextual language processing</p>
+                </div>
+                <div class="tech-item">
+                    <span>Jetpack Compose</span>
+                    <p style="font-weight: 400; font-size: 0.9rem; text-align: center; max-width: 200px;">Reactive, declarative UI architecture</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-links">
+            <a href="privacy.html">Privacy Policy</a>
+            <a href="terms.html">Terms of Service</a>
+            <a href="mailto:support@syncdialect.app">Contact Support</a>
+        </div>
+        <p>&copy; 2026 SyncDialect. All rights reserved.</p>
+    </footer>
+
+
+    <script>
+        let currentSlide = 1;
+        const totalSlides = 4;
+        let slideInterval;
+
+        function switchSlide(slideIndex) {
+            // Update active states for images
+            document.querySelectorAll('.slide-image').forEach((img, index) => {
+                if (index + 1 === slideIndex) {
+                    img.classList.add('active');
+                } else {
+                    img.classList.remove('active');
+                }
+            });
+
+            // Update active states for feature blocks
+            document.querySelectorAll('.feature-block').forEach((block, index) => {
+                if (index + 1 === slideIndex) {
+                    block.classList.add('active');
+                } else {
+                    block.classList.remove('active');
+                }
+            });
+
+            currentSlide = slideIndex;
+            resetInterval();
+        }
+
+        function nextSlide() {
+            currentSlide = currentSlide >= totalSlides ? 1 : currentSlide + 1;
+            switchSlide(currentSlide);
+        }
+
+        function resetInterval() {
+            clearInterval(slideInterval);
+            slideInterval = setInterval(nextSlide, 5000);
+        }
+
+        
+        // Rotating Text
+        const words = ["translation.", "traducción.", "traduction.", "übersetzung.", "ترجمة.", "翻译."];
+        let wordIndex = 0;
+        const rotatingText = document.querySelector('.rotating-text');
+        
+        if(rotatingText) {
+            setInterval(() => {
+                rotatingText.classList.remove('fade-in');
+                rotatingText.classList.add('fade-out');
+                
+                setTimeout(() => {
+                    wordIndex = (wordIndex + 1) % words.length;
+                    rotatingText.textContent = words[wordIndex];
+                    rotatingText.classList.remove('fade-out');
+                    rotatingText.classList.add('fade-in');
+                }, 400); // Wait for fade out
+            }, 3000);
+        }
+
+        // Start the slideshow
+        resetInterval();
+    </script>
+</body>
+</html>
