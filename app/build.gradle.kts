@@ -11,8 +11,8 @@ android {
         applicationId = "com.syncdialect.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 19
-        versionName = "1.1.2"
+        versionCode = 20
+        versionName = "1.1.3"
     }
 
     signingConfigs {
@@ -61,10 +61,10 @@ dependencies {
   implementation(composeBom)
   androidTestImplementation(composeBom)
 
-  // Core Android dependencies
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
+  implementation("androidx.core:core-splashscreen:1.0.1")
 
 
 
@@ -99,6 +99,8 @@ dependencies {
 
   implementation("com.google.mlkit:translate:17.0.3")
 
+  // WebRTC VAD
+  implementation("com.github.gkonovalov.android-vad:webrtc:2.0.10")
   // Navigation
   implementation(libs.androidx.navigation3.ui)
   implementation(libs.androidx.navigation3.runtime)

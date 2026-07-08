@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.translate.TranslateLanguage
@@ -80,7 +82,6 @@ fun SettingsScreen(
                 Text("Preferences", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                 Text("App Customization & Engines", fontSize = 14.sp, color = TextSecondary)
             }
-            // Removed the X cross mark as requested
         }
 
         Spacer(Modifier.height(24.dp))
@@ -599,9 +600,12 @@ fun VoiceSettingsDialog(
         availableVoices = formatted.sortedBy { it.voice.isNetworkConnectionRequired }
         
         if (availableVoices.isNotEmpty()) {
-            val firstVoice = availableVoices.first()
-            selectedVoiceName = "${firstVoice.displayName} - ${firstVoice.type}"
-            selectedOriginalVoiceName = firstVoice.originalName
+            val prefs = AppPreferences(context)
+            val savedName = prefs.selectedVoiceName
+            val targetVoice = availableVoices.find { it.originalName == savedName } ?: availableVoices.first()
+            
+            selectedVoiceName = "${targetVoice.displayName} - ${targetVoice.type}"
+            selectedOriginalVoiceName = targetVoice.originalName
         }
     }
 

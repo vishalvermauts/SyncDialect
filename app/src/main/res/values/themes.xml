@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <style name="Theme.SyncDialect" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#050507</item>
+    </style>
 
-    <style name="Theme.SyncDialect" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <!-- Set the splash screen background, animated icon, and icon background. -->
+        <item name="windowSplashScreenBackground">#050507</item>
+        <!-- Use the app logo inset to scale it down so the text fits in the circle mask perfectly -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo_inset</item>
+        <!-- Post splash screen theme. -->
+        <item name="postSplashScreenTheme">@style/Theme.SyncDialect</item>
+    </style>
 </resources>

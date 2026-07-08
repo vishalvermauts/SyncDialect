@@ -16,8 +16,8 @@ class StreamingTTSManager(
     private var isReady = false
     private var buffer = StringBuilder()
     // Force-speak the buffer once it grows past this word or char length
-    private val maxBufferedWords = 3
-    private val maxBufferedChars = 25
+    private val maxBufferedWords = 8
+    private val maxBufferedChars = 40
 
     var onSpeakingStateChanged: ((Boolean) -> Unit)? = null
     private val activeUtterances = java.util.Collections.synchronizedSet(HashSet<String>())
@@ -158,6 +158,7 @@ class StreamingTTSManager(
             val bestVoice = selectOptimalVoice(locale)
             if (bestVoice != null) {
                 tts!!.voice = bestVoice
+                prefs.selectedVoiceName = bestVoice.name
                 Log.d("TTS", "Selected default voice: ${bestVoice.name}")
             }
         } catch (e: Exception) {

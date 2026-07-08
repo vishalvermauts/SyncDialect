@@ -1,20 +1,27 @@
+# IDE / Gradle / OS / Kotlin
+.idea/
+app/.idea/
 *.iml
-.gradle
+.gradle/
+.kotlin/
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
 local.properties
+.DS_Store
+/build/
+app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
 
+# Project specific temporary and large files
 *.litertlm
+*.zip
+*.apk
+*.ab
+aar_path.txt
+last_view.json
+diff_result.txt
 temp_aar*
+temp_litertlm/
 aar_inspect/
 log*.txt

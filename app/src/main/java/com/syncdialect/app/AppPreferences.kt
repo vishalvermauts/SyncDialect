@@ -8,9 +8,9 @@ class AppPreferences(context: Context) {
 
     // --- Tuning Parameters ---
 
-    // VAD Wait Frames (Speed): 10 to 50 (default 10 = 0.4s)
+    // VAD Wait Frames (Speed): 10 to 50 (default 40 = 0.8s)
     var vadWaitFrames: Int
-    get() = prefs.getInt("vadWaitFrames", 10)
+    get() = prefs.getInt("vadWaitFrames", 40)
     set(value) = prefs.edit().putInt("vadWaitFrames", value).apply()
 
     // Model Temperature: 0.0 to 1.0 (default 0.1)
@@ -34,4 +34,9 @@ class AppPreferences(context: Context) {
     var selectedVoiceName: String?
         get() = prefs.getString("selectedVoiceName", null)
         set(value) = prefs.edit().putString("selectedVoiceName", value).apply()
+        
+    // Force Offline TTS
+    var forceOfflineTts: Boolean
+        get() = prefs.getBoolean("forceOfflineTts", true)
+        set(value) = prefs.edit().putBoolean("forceOfflineTts", value).apply()
 }

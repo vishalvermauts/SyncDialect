@@ -8,6 +8,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.animation.core.*
 import androidx.compose.ui.draw.rotate
 import androidx.compose.animation.core.animateFloatAsState
@@ -23,6 +24,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -84,9 +90,20 @@ class MainActivity : ComponentActivity() {
     ) { isGranted: Boolean -> }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         
-        audioRecorderHelper = AudioRecorderHelper(AppPreferences(this))
+        var keepSplashScreen = true
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(4000)
+            keepSplashScreen = false
+        }
+        splashScreen.setKeepOnScreenCondition { keepSplashScreen }
+        
+        val appPrefs = AppPreferences(this)
+        forceOfflineTts.value = appPrefs.forceOfflineTts
+
+        audioRecorderHelper = AudioRecorderHelper(appPrefs)
         translationEngine = TranslationEngine(this)
         ttsEngine = StreamingTTSManager(this) { intent ->
             runOnUiThread {
@@ -94,6 +111,7 @@ class MainActivity : ComponentActivity() {
             }
             if (intent != null) startActivity(intent)
         }
+        ttsEngine.forceOfflineMode = forceOfflineTts.value
         ttsEngine.onSpeakingStateChanged = { isSpeaking ->
             audioRecorderHelper.isMuted = isSpeaking
         }
@@ -112,12 +130,20 @@ class MainActivity : ComponentActivity() {
                 isModelLoading.value = true
                 val success = translationEngine.initialize(modelPath)
                 isModelReady.value = success
+                if (success) {
+                    translationEngine.prewarmConversation(targetLanguage.value)
+                }
                 isModelLoading.value = false
             }
         }
 
         setContent {
             MaterialTheme {
+                androidx.compose.runtime.LaunchedEffect(forceOfflineTts.value) {
+                    appPrefs.forceOfflineTts = forceOfflineTts.value
+                    ttsEngine.forceOfflineMode = forceOfflineTts.value
+                    ttsEngine.setLanguage(targetLanguageTag.value)
+                }
                 SyncDialectApp()
             }
         }
@@ -244,6 +270,17 @@ class MainActivity : ComponentActivity() {
                             val tempTag = targetLanguageTag.value
                             targetLanguageTag.value = allLanguagesList.find { it.first == targetLanguage.value }?.second ?: "en"
                             ttsEngine.setLanguage(targetLanguageTag.value)
+                            
+                            val prefs = getSharedPreferences("SyncDialectPrefs", android.content.Context.MODE_PRIVATE)
+                            prefs.edit().apply {
+                                putString("sourceLanguage", sourceLanguage.value)
+                                putString("targetLanguage", targetLanguage.value)
+                                putString("targetLanguageTag", targetLanguageTag.value)
+                                apply()
+                            }
+                            
+                            // Prewarm for new target language
+                            translationEngine.prewarmConversation(targetLanguage.value)
                         },
                         modifier = Modifier
                             .padding(horizontal = 16.dp)
@@ -296,32 +333,31 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             audioRecorderHelper.startContinuousRecording { audioData ->
-                                val msgId = java.util.UUID.randomUUID().toString()
-                                runOnUiThread {
-                                    messages.add(ChatMessage("", targetLanguage.value, false, msgId))
+                                if (!translationEngine.tryStartTranslation()) {
+                                    android.util.Log.d("MainActivity", "Chunk dropped — translation already in progress")
+                                    return@startContinuousRecording
                                 }
+                                val msgId = java.util.UUID.randomUUID().toString()
+                                // Do NOT pre-add an empty placeholder. Add the row only when
+                                // the first real token arrives, so Chars:0 chunks leave no trace in the UI.
                                 lifecycleScope.launch(Dispatchers.IO) {
-                                    translationEngine.translateAudioStreaming(
+                                    translationEngine.translateAudioStreamingExclusive(
                                         sourceLang = sourceLanguage.value,
                                         targetLang = targetLanguage.value,
                                         audioData = audioData,
                                         onLanguageDetected = { _ -> },
-                                        onTokenGenerated = { token, _ ->
+                                        onTokenGenerated = { token, latencyMs ->
                                             val isEnd = token.contains("<end_of_turn>") || token.contains("end_of_turn") || token.contains("eos")
-                                            val clean = token.replace("<end_of_turn>", "").replace("\n", "").trim()
-                                            if (clean.contains("[SILENCE]")) {
+                                            val clean = token.replace("<end_of_turn>", "").replace("\n", "")
+                                            if (clean.isNotEmpty() && !clean.contains("[SILENCE]")) {
                                                 runOnUiThread {
                                                     val idx = messages.indexOfFirst { it.id == msgId }
-                                                    if (idx != -1 && messages[idx].text.isEmpty()) {
-                                                        messages.removeAt(idx)
-                                                    }
-                                                }
-                                            } else if (clean.isNotEmpty()) {
-                                                runOnUiThread {
-                                                    val idx = messages.indexOfFirst { it.id == msgId }
-                                                    if (idx != -1) {
-                                                        val newText = messages[idx].text + " " + clean
-                                                        messages[idx] = messages[idx].copy(text = newText.trim())
+                                                    if (idx == -1) {
+                                                        // First token — create the message row now
+                                                        messages.add(ChatMessage(clean, targetLanguage.value, false, msgId))
+                                                    } else {
+                                                        // Subsequent tokens — append
+                                                        messages[idx] = messages[idx].copy(text = messages[idx].text + clean)
                                                     }
                                                 }
                                                 ttsEngine.processToken(clean)
@@ -408,6 +444,7 @@ class MainActivity : ComponentActivity() {
                                             targetLanguage.value = langPair.first
                                             targetLanguageTag.value = langPair.second
                                             ttsEngine.setLanguage(langPair.second)
+                                            translationEngine.prewarmConversation(targetLanguage.value)
                                         }
                                         showLangSheet = false
                                     }
@@ -422,20 +459,39 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun TopBar() {
+        val clipboardManager = LocalClipboardManager.current
         Column(modifier = Modifier.fillMaxWidth().padding(top = 48.dp)) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
+                contentAlignment = Alignment.Center
             ) {
+                // High Quality Text instead of Logo
                 Text(
                     text = "SyncDialect",
-                    color = TextPrimary,
+                    color = Color.White,
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.5.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif
                 )
+                // Action buttons on the right
+                Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                    IconButton(onClick = {
+                        val allText = messages.joinToString("\n") { 
+                            if (it.isUser) "[You]: ${it.text}" else "[Translated]: ${it.text}" 
+                        }
+                        clipboardManager.setText(AnnotatedString(allText))
+                    }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy text", tint = TextSecondary)
+                    }
+                    IconButton(onClick = {
+                        messages.clear()
+                    }) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = "Clear screen", tint = TextSecondary)
+                    }
+                }
             }
             Spacer(Modifier.height(6.dp))
             Text(
@@ -475,7 +531,7 @@ class MainActivity : ComponentActivity() {
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.12f))
                     .clickable { 
-                        rotation += 180f
+                        rotation += 360f
                         onSwap() 
                     },
                 contentAlignment = Alignment.Center
