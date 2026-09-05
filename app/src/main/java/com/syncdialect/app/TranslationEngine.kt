@@ -47,6 +47,9 @@ class TranslationEngine(
     @Volatile private var isInitialized = false
     @Volatile private var isInitializing = false
 
+    private val engineJob = kotlinx.coroutines.SupervisorJob()
+    private val engineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + engineJob)
+
     suspend fun initialize(modelAbsolutePath: String): Boolean {
         if (isInitialized) return true
         if (isInitializing) return false
@@ -56,19 +59,21 @@ class TranslationEngine(
             try {
                 Log.d("TranslationEngine", "Loading model from: $modelAbsolutePath")
 
-                // gemma-4-E2B audio model only supports CPU backend.
-                // Skip GPU attempt entirely to avoid the INVALID_ARGUMENT error and wasted init time.
+                // gemma audio-multimodal model on LiteRT is strictly CPU-supported.
+                // Initialize directly on CPU for fastest cold start and zero wasted initialization time.
                 engine = buildEngine(modelAbsolutePath, Backend.CPU())
-                if (engine != null) activeBackend = "CPU"
+                if (engine != null) {
+                    activeBackend = "CPU"
+                }
 
                 if (engine == null) {
-                    Log.e("TranslationEngine", "Engine init failed on both GPU and CPU")
+                    Log.e("TranslationEngine", "Engine init failed on CPU")
                     isInitialized = false
                     return@withContext false
                 }
 
                 isInitialized = true
-                Log.d("TranslationEngine", "Engine ready (2048 tokens)")
+                Log.d("TranslationEngine", "Engine ready (2048 tokens on CPU)")
                 true
             } catch (e: Exception) {
                 Log.e("TranslationEngine", "Engine init failed: ${e.message}", e)
@@ -109,30 +114,7 @@ class TranslationEngine(
     }
 
     fun prewarmConversation(targetLang: String) {
-        if (!isInitialized || engine == null) return
-        
-        GlobalScope.launch(Dispatchers.IO) {
-            try {
-                Log.d("TranslationEngine", "Pre-warming conversation for $targetLang in background...")
-                val samplerConfig = SamplerConfig(
-                    topK = prefs.modelTopK, topP = 1.0, temperature = prefs.modelTemperature.toDouble(), seed = 0
-                )
-                val convConfig = ConversationConfig(
-                    samplerConfig = samplerConfig,
-                    systemInstruction = Contents.of(
-                        Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions.")
-                    )
-                )
-                val newConv = engine?.createConversation(convConfig) ?: return@launch
-                val newSlot = PrewarmedSlot(newConv, targetLang)
-                // Atomically swap in the new slot, closing any existing one
-                val old = prewarmedSlot.getAndSet(newSlot)
-                old?.conv?.close()
-                Log.d("TranslationEngine", "Pre-warming complete for $targetLang.")
-            } catch (e: Exception) {
-                Log.e("TranslationEngine", "Failed to prewarm conversation: ${e.message}", e)
-            }
-        }
+        // Prewarming is kept no-op to ensure 100% thread-safe stateless conversation creation per chunk
     }
 
     // Called by MainActivity when tryStartTranslation() returned true.
@@ -143,10 +125,11 @@ class TranslationEngine(
         audioData: ByteArray,
         onLanguageDetected: (String) -> Unit,
         onTokenGenerated: (String, Long?) -> Unit,
+        onComplete: () -> Unit,
         onError: (String) -> Unit
     ) {
         try {
-            translateAudioStreaming(sourceLang, targetLang, audioData, onLanguageDetected, onTokenGenerated, onError)
+            translateAudioStreaming(sourceLang, targetLang, audioData, onLanguageDetected, onTokenGenerated, onComplete, onError)
         } finally {
             isTranslating.set(false)
         }
@@ -158,6 +141,7 @@ class TranslationEngine(
         audioData: ByteArray,
         onLanguageDetected: (String) -> Unit,
         onTokenGenerated: (String, Long?) -> Unit,
+        onComplete: () -> Unit,
         onError: (String) -> Unit
     ) {
         if (!isInitialized || engine == null) {
@@ -167,30 +151,33 @@ class TranslationEngine(
 
         translationMutex.withLock {
             withContext(Dispatchers.IO) {
-                // Atomically claim the prewarmed conversation if it matches our target language.
-                // getAndSet(null) is lock-free and prevents a deadlock.
-                val slot = prewarmedSlot.getAndSet(null)
-                val conv: Conversation = if (slot != null && slot.lang == targetLang) {
-                    Log.d("TranslationEngine", "Using pre-warmed conversation for $targetLang")
-                    slot.conv
-                } else {
-                    // Prewarm was not ready — close wrong-language slot if any and create synchronously
-                    slot?.conv?.close()
-                    Log.d("TranslationEngine", "No pre-warmed conversation for $targetLang. Creating synchronously...")
-                    val samplerConfig = SamplerConfig(
-                        topK = prefs.modelTopK, topP = 1.0, temperature = prefs.modelTemperature.toDouble(), seed = 0
-                    )
-                    val convConfig = ConversationConfig(
-                        samplerConfig = samplerConfig,
-                        systemInstruction = Contents.of(
-                            Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions.")
-                        )
-                    )
-                    engine!!.createConversation(convConfig)
+                val currentEngine = engine
+                if (currentEngine == null) {
+                    withContext(Dispatchers.Main) { onError("Engine not initialized") }
+                    return@withContext
                 }
 
-                // Immediately kick off pre-warming for the NEXT sentence in the background
-                prewarmConversation(targetLang)
+                val samplerConfig = SamplerConfig(
+                    topK = prefs.modelTopK,
+                    topP = 1.0,
+                    temperature = prefs.modelTemperature.toDouble(),
+                    seed = 0
+                )
+                val convConfig = ConversationConfig(
+                    samplerConfig = samplerConfig,
+                    systemInstruction = Contents.of(
+                        Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions.")
+                    )
+                )
+
+                val conv: Conversation
+                try {
+                    conv = currentEngine.createConversation(convConfig)
+                } catch (e: Exception) {
+                    Log.e("TranslationEngine", "Failed to create conversation: ${e.message}", e)
+                    withContext(Dispatchers.Main) { onError("Failed to start translation session: ${e.message}") }
+                    return@withContext
+                }
 
                 try {
                     Log.d("TranslationEngine", "Translating ${audioData.size} bytes → $targetLang")
@@ -208,7 +195,7 @@ class TranslationEngine(
                     withContext(Dispatchers.Main) { onLanguageDetected(targetLang) }
 
                     conv.sendMessageAsync(contents)
-                        .takeWhile { charCount < 300 }
+                        .takeWhile { charCount < 1200 }
                         .collect { chunk: Message ->
                             val text = chunk.contents.contents
                                 .filterIsInstance<Content.Text>()
@@ -225,6 +212,7 @@ class TranslationEngine(
                             }
                         }
                     Log.d("TranslationEngine", "Translation complete. Chars: $charCount")
+                    withContext(Dispatchers.Main) { onComplete() }
                 } catch (e: Exception) {
                     Log.e("TranslationEngine", "Inference error: ${e.message}", e)
                     withContext(Dispatchers.Main) {
@@ -242,6 +230,7 @@ class TranslationEngine(
     fun getActiveBackend(): String = activeBackend
 
     fun close() {
+        try { engineJob.cancel() } catch (ignored: Exception) {}
         val old = prewarmedSlot.getAndSet(null)
         old?.conv?.close()
         engine?.close(); engine = null; isInitialized = false

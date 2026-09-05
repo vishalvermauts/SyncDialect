@@ -93,12 +93,19 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         
-        var keepSplashScreen = true
-        lifecycleScope.launch {
-            kotlinx.coroutines.delay(4000)
-            keepSplashScreen = false
+        // --- WORKAROUND FOR LITERTLM-ANDROID COROUTINES ABI BUG ---
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            if (throwable is NoSuchMethodError && throwable.message?.contains("close\$default") == true) {
+                android.util.Log.w("SyncDialect", "Ignored litertlm coroutines ABI crash on thread ${thread.name}")
+                return@setDefaultUncaughtExceptionHandler
+            }
+            defaultHandler?.uncaughtException(thread, throwable)
         }
-        splashScreen.setKeepOnScreenCondition { keepSplashScreen }
+        // ----------------------------------------------------------
+
+        // Dismiss splash screen dynamically as soon as activity prepares
+        splashScreen.setKeepOnScreenCondition { false }
         
         val appPrefs = AppPreferences(this)
         forceOfflineTts.value = appPrefs.forceOfflineTts
@@ -124,6 +131,21 @@ class MainActivity : ComponentActivity() {
         targetLanguage.value = prefs.getString("targetLanguage", "Spanish") ?: "Spanish"
         targetLanguageTag.value = prefs.getString("targetLanguageTag", "es") ?: "es"
 
+        initializeModelEngine()
+
+        setContent {
+            MaterialTheme {
+                androidx.compose.runtime.LaunchedEffect(forceOfflineTts.value) {
+                    appPrefs.forceOfflineTts = forceOfflineTts.value
+                    ttsEngine.forceOfflineMode = forceOfflineTts.value
+                    ttsEngine.setLanguage(targetLanguageTag.value)
+                }
+                SyncDialectApp()
+            }
+        }
+    }
+
+    fun initializeModelEngine(onComplete: ((Boolean) -> Unit)? = null) {
         lifecycleScope.launch(Dispatchers.IO) {
             val modelPath = downloadManager.getModelAbsolutePath()
             if (File(modelPath).exists()) {
@@ -134,17 +156,15 @@ class MainActivity : ComponentActivity() {
                     translationEngine.prewarmConversation(targetLanguage.value)
                 }
                 isModelLoading.value = false
-            }
-        }
-
-        setContent {
-            MaterialTheme {
-                androidx.compose.runtime.LaunchedEffect(forceOfflineTts.value) {
-                    appPrefs.forceOfflineTts = forceOfflineTts.value
-                    ttsEngine.forceOfflineMode = forceOfflineTts.value
-                    ttsEngine.setLanguage(targetLanguageTag.value)
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onComplete?.invoke(success)
                 }
-                SyncDialectApp()
+            } else {
+                isModelReady.value = false
+                isModelLoading.value = false
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onComplete?.invoke(false)
+                }
             }
         }
     }
@@ -338,12 +358,19 @@ class MainActivity : ComponentActivity() {
                                     return@startContinuousRecording
                                 }
                                 val msgId = java.util.UUID.randomUUID().toString()
-                                // Do NOT pre-add an empty placeholder. Add the row only when
-                                // the first real token arrives, so Chars:0 chunks leave no trace in the UI.
+                                // Snapshot current language selection so in-flight translation is immutable
+                                val currentSourceLang = sourceLanguage.value
+                                val currentTargetLang = targetLanguage.value
+                                val currentTargetTag = targetLanguageTag.value
+
+                                // Prepare TTS for a new turn
+                                ttsEngine.setLanguage(currentTargetTag)
+                                ttsEngine.onTurnStarted()
+
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     translationEngine.translateAudioStreamingExclusive(
-                                        sourceLang = sourceLanguage.value,
-                                        targetLang = targetLanguage.value,
+                                        sourceLang = currentSourceLang,
+                                        targetLang = currentTargetLang,
                                         audioData = audioData,
                                         onLanguageDetected = { _ -> },
                                         onTokenGenerated = { token, latencyMs ->
@@ -354,7 +381,7 @@ class MainActivity : ComponentActivity() {
                                                     val idx = messages.indexOfFirst { it.id == msgId }
                                                     if (idx == -1) {
                                                         // First token — create the message row now
-                                                        messages.add(ChatMessage(clean, targetLanguage.value, false, msgId))
+                                                        messages.add(ChatMessage(clean, currentTargetLang, false, msgId))
                                                     } else {
                                                         // Subsequent tokens — append
                                                         messages[idx] = messages[idx].copy(text = messages[idx].text + clean)
@@ -366,9 +393,13 @@ class MainActivity : ComponentActivity() {
                                                 ttsEngine.flush()
                                             }
                                         },
+                                        onComplete = {
+                                            ttsEngine.flush()
+                                        },
                                         onError = { err ->
                                             runOnUiThread {
                                                 isRecording.value = false
+                                                audioRecorderHelper.stopRecording()
                                                 messages.add(ChatMessage("Error: $err", "System"))
                                             }
                                         }
@@ -413,7 +444,8 @@ class MainActivity : ComponentActivity() {
                         forceOfflineTts = forceOfflineTts,
                         ttsEngine = ttsEngine,
                         downloadManager = downloadManager,
-                        mainActivityContext = this@MainActivity
+                        mainActivityContext = this@MainActivity,
+                        onModelDownloaded = { initializeModelEngine() }
                     )
                 }
                 NavBar(modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
@@ -806,5 +838,6 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         audioRecorderHelper.stopRecording()
         ttsEngine.shutdown()
+        translationEngine.close()
     }
 }

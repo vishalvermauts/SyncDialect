@@ -69,7 +69,7 @@ class ModelDownloadService : Service() {
 
     private fun createNotification(progress: Int): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Downloading AI Engine")
+            .setContentTitle("Downloading Gemma 4 Engine")
             .setContentText(if (progress < 100) "$progress%" else "Download complete")
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setProgress(100, progress, false)
@@ -201,9 +201,19 @@ class ModelDownloadService : Service() {
 
                 if (success) {
                     val destinationFile = File(filesDir, modelFileName)
-                    tempFile.renameTo(destinationFile)
+                    if (!tempFile.exists() || tempFile.length() < 100_000_000L) {
+                        throw Exception("Downloaded file is incomplete or invalid size (${tempFile.length()} bytes)")
+                    }
+                    if (destinationFile.exists()) {
+                        destinationFile.delete()
+                    }
+                    val renamed = tempFile.renameTo(destinationFile)
+                    if (!renamed) {
+                        throw Exception("Failed to promote temporary model file to destination")
+                    }
                     updateNotification(100)
                     ModelDownloadManager.downloadProgress.value = 100
+                    Log.d("ModelDownloadService", "Model successfully promoted to ${destinationFile.absolutePath}")
                 }
                 
             } catch (e: Exception) {

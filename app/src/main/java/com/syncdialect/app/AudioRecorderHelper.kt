@@ -62,9 +62,13 @@ class AudioRecorderHelper(private val prefs: AppPreferences) {
             var chunkStream = ByteArrayOutputStream()
             var silenceFrames = 0
             var speechFrames = 0
-            val minChunkBytes = 16000 // 1 second minimum
+            val minChunkBytes = 16000 // 0.5 seconds minimum (at 16kHz 16-bit mono: 32000 B/s)
             val maxChunkBytes = 96000  // 3 seconds maximum — targets ~1.5s latency
             val minSpeechFrames = 10   // Require 200ms (10 * 20ms) of VAD-confirmed speech
+
+            // Pre-roll buffer: Keep last 8 frames (~160ms) of audio to prevent clipping onsets
+            val preRollCapacity = 8
+            val preRollQueue = java.util.ArrayDeque<ByteArray>(preRollCapacity)
 
             while (isRecording) {
                 try {
@@ -81,29 +85,52 @@ class AudioRecorderHelper(private val prefs: AppPreferences) {
                             chunkStream.reset()
                             silenceFrames = 0
                             speechFrames = 0
+                            preRollQueue.clear()
                             continue
                         }
                         
                         val isSpeech = vad.isSpeech(buffer)
 
                         if (isSpeech) {
+                            // On transition from silence to speech, prepend pre-roll frames
+                            if (speechFrames == 0 && chunkStream.size() == 0) {
+                                for (preFrame in preRollQueue) {
+                                    chunkStream.write(preFrame, 0, preFrame.size)
+                                }
+                                preRollQueue.clear()
+                            }
                             speechFrames++
                             silenceFrames = 0
                         } else {
                             silenceFrames++
+                            // If currently in silence before speech started, maintain circular pre-roll
+                            if (speechFrames == 0) {
+                                if (preRollQueue.size >= preRollCapacity) {
+                                    preRollQueue.pollFirst()
+                                }
+                                preRollQueue.offerLast(buffer.clone())
+                            }
                         }
 
-                        // Collect audio if speech has been detected
-                        if (speechFrames > 0 || isSpeech) {
+                        // Collect audio once speech has been initiated
+                        if (speechFrames > 0) {
                              chunkStream.write(buffer, 0, frameSizeBytes)
                         }
 
-                        // Auto-flush if chunk exceeds 10 seconds (continuous long speech)
+                        // Auto-flush if chunk exceeds 3 seconds (continuous long speech)
                         val shouldForceFlush = chunkStream.size() >= maxChunkBytes && speechFrames >= minSpeechFrames
 
-                        // If enough silence and we have some audio, yield the chunk
-                        if ((silenceFrames >= prefs.vadWaitFrames && chunkStream.size() >= 8000) || shouldForceFlush) {
-                            if (speechFrames >= minSpeechFrames) { // Require at least 300ms of actual speech
+                        // Adaptive VAD: For sustained speech (>=1.5s / 75 frames), drop silence threshold to 20 frames (400ms)
+                        // For shorter speech, retain default (40 frames = 800ms) to allow natural pauses
+                        val requiredSilenceFrames = if (speechFrames >= 75) {
+                            (prefs.vadWaitFrames / 2).coerceAtLeast(18) // ~360ms - 400ms
+                        } else {
+                            prefs.vadWaitFrames // default 40 frames = 800ms
+                        }
+
+                        // If enough silence and we have captured audio, yield the chunk
+                        if ((silenceFrames >= requiredSilenceFrames && chunkStream.size() >= 8000) || shouldForceFlush) {
+                            if (speechFrames >= minSpeechFrames) { // Require at least 200ms of actual speech
                                 var chunkData = chunkStream.toByteArray()
                                 // Energy gate: compute RMS; skip if audio is too quiet (near-silence)
                                 val rms = chunkData.foldIndexed(0L) { i, acc, _ ->
@@ -133,6 +160,7 @@ class AudioRecorderHelper(private val prefs: AppPreferences) {
                             chunkStream = ByteArrayOutputStream() // reset for next chunk
                             silenceFrames = 0
                             speechFrames = 0
+                            preRollQueue.clear()
                         }
                     }
                 } catch (e: Exception) {

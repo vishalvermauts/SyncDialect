@@ -30,6 +30,11 @@ graph TD
 
 ---
 
+> [!TIP]
+> For an in-depth breakdown of engine hyperparameters, audio framing, WebRTC VAD thresholds, concurrency model, and latency optimization logs, see **[techstack.md](techstack.md)**.
+
+---
+
 ## 🚀 Key Features
 
 *   **Ultra-Low Latency**: Achieves real-time translation with a delay of only **600–800 ms**, enabling natural flow in bilingual conversations.
@@ -77,3 +82,60 @@ Compile the app directly from your terminal using Gradle:
     ```
 
 *Note: Release bundles are signed using the signing keys specified in `app/build.gradle.kts`.*
+
+---
+
+## 💡 Performance Optimization & Future Roadmap Suggestions
+
+> [!IMPORTANT]
+> For the complete architectural assessment, measured latency decomposition, baseline corrections, and prioritized delivery sequence, see the full **[SyncDialect V2 Proposal](V2_PROPOSAL.md)**.
+
+Based on architectural reviews and pipeline profiling, the following improvements are planned to optimize speech-end-to-first-audio latency (targeting **p50 ≤ 1.2s** and **p95 ≤ 2.0s** on flagship hardware, with sub-200ms potential via NPU acceleration):
+
+### 1. ⚡ Latency & Pipeline Optimizations
+* **Adaptive Voice Activity Detection (VAD)**:
+  * *Current:* Fixed 40 frames (800 ms) silence wait time across all utterances.
+  * *Proposed:* Adaptively drop the silence threshold to **20 frames (400 ms)** when speech duration exceeds 1.5s with a falling energy profile. Shaves **~300–400 ms** off perceived delay.
+* **Background Conversation Pre-Warming**:
+  * *Current:* `createConversation()` is called synchronously after audio is captured (~50–150 ms overhead).
+  * *Proposed:* Pre-create and cache the next LiteRT `Conversation` in the background as soon as speech starts (`speechFrames >= 5`), claiming it with 0 ms overhead when audio finalizes.
+* **Direct Background TTS Streaming Channel**:
+  * *Current:* Every token hops to the Android Main thread via `withContext(Dispatchers.Main)` before reaching TTS.
+  * *Proposed:* Stream tokens directly via a background `Channel<String>` to `StreamingTTSManager`, batching UI recompositions to eliminate Main Looper stalls (**~30–50 ms saved**).
+* **Early Sentence Boundary Synthesis**:
+  * *Current:* Buffers up to 8 words / 40 characters before triggering speech.
+  * *Proposed:* For the very first clause, dispatch speech immediately upon receiving **3 words or a comma**, reducing Time-To-First-Sound (TTFS) by **~150 ms**.
+* **Zero-Copy In-Place WAV Framing**:
+  * *Current:* Allocates separate byte arrays and uses `System.arraycopy` to build the 44-byte WAV header per chunk.
+  * *Proposed:* Pre-allocate a 44-byte offset in the recording stream buffer to construct WAV headers in-place, eliminating GC allocations.
+
+### 2. 🧠 Model & Architecture Upgrades (2026 Edge AI Landscape)
+* **Upgrade to Gemma 3n (Int4 Quantized)**:
+  * Transition from the ~2.5 GB Int8 model to **Gemma 3n INT4** (`gemma-3n-E2B-it-int4.litertlm`).
+  * *Benefits:* Shrinks model size from ~2.5 GB to **~1.4–1.8 GB** (faster download and lower RAM usage) and boosts CPU token throughput by ~25–35%.
+* **Qualcomm NPU / QNN Hardware Acceleration**:
+  * Enable Qualcomm QNN / MediaTek Neuropilot NPU backend delegates in LiteRT.
+  * *Benefits:* Offloading LLM inference from CPU to NPU can reduce latency to **sub-200 ms** while reducing battery consumption by over 50%.
+* **Dual-Tier Cascaded Mode (For Low-End Devices)**:
+  * Optional ultra-battery mode using a lightweight STT (Moonshine / Whisper-Base ONNX) + offline ML Kit translation (~150 MB total memory footprint).
+
+### 3. 🛡️ Security, Privacy & Reliability Concerns & Hardening
+
+The security and privacy audit identified several critical items to address:
+
+* **Missing Model Checksum (SHA-256) Verification (Tampering / MITM Risk)**:
+  * *Concern:* `ModelDownloadService` downloads the 2.5 GB model binary directly over HTTPS and saves it without verifying cryptographic signatures or hashes. If a mirror is compromised or download is corrupted, invalid or poisoned weights could be executed by LiteRT.
+  * *Fix:* Compute and enforce SHA-256 hash comparison against a pinned trusted hash prior to renaming the file to `.litertlm`.
+* **Global Uncaught Crash Swallowing (`NoSuchMethodError`)**:
+  * *Concern:* `MainActivity.onCreate()` registers a global `Thread.setDefaultUncaughtExceptionHandler` that catches and silently drops `NoSuchMethodError` (`close$default`). Silently suppressing ABI mismatch crashes leaves coroutines in unknown corrupt states and hides severe runtime errors.
+  * *Fix:* Resolve Kotlin coroutine ABI dependencies (`kotlinx-coroutines` vs `litertlm-android`) in `build.gradle.kts` and eliminate the global exception suppression hook.
+* **In-Memory Audio Buffer Residuals (Data Privacy)**:
+  * *Concern:* While the primary audio stream array is zeroed out on flush, intermediate arrays (`ByteArray(frameSizeBytes)`) and chunk clones remain on the heap until garbage collected, theoretically exposing voice snippet remnants to memory dumps.
+  * *Fix:* Implement an explicit memory-scrubbing ring buffer pattern where all allocated audio frames are zeroed immediately upon consumption.
+* **Unbounded WakeLock & Battery Drain Vector**:
+  * *Concern:* `ModelDownloadService` acquires a `PARTIAL_WAKE_LOCK` for up to 10 minutes unconditionally, bypassing Android battery optimization (Doze mode) even when cellular data is metered or dropping.
+  * *Fix:* Replace raw foreground services and WakeLocks with Jetpack `WorkManager` using `Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED)` to protect user battery and data plans.
+* **Unmanaged Hardware Audio Thread Lifecycle**:
+  * *Concern:* `AudioRecorderHelper` manages microphone capture using a raw `Thread { ... }`. If the app crashes or the process is killed abnormally, the native `AudioRecord` hardware handle may not release promptly.
+  * *Fix:* Wrap microphone capture in structured Kotlin coroutine scopes with cancellation handlers ensuring atomic `audioRecord.release()`.
+

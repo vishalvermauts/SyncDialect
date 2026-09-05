@@ -52,10 +52,21 @@ class StreamingTTSManager(
         }
     }
 
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val watchdogRunnable = Runnable {
+        if (activeUtterances.isNotEmpty()) {
+            Log.w("TTS", "Watchdog triggered: clearing stuck utterances (${activeUtterances.size})")
+            activeUtterances.clear()
+            checkSpeakingState()
+        }
+    }
+
     private fun setupUtteranceListener() {
         tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 Log.d("TTS", "onStart: $utteranceId")
+                handler.removeCallbacks(watchdogRunnable)
+                handler.postDelayed(watchdogRunnable, 6000) // 6 second safety watchdog
                 onSpeakingStateChanged?.invoke(true)
             }
 
@@ -96,6 +107,7 @@ class StreamingTTSManager(
 
     private fun checkSpeakingState() {
         if (activeUtterances.isEmpty()) {
+            handler.removeCallbacks(watchdogRunnable)
             onSpeakingStateChanged?.invoke(false)
         }
     }
@@ -135,31 +147,43 @@ class StreamingTTSManager(
         val result = tts!!.setLanguage(locale)
 
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            Log.e("TTS", "Language data missing or not supported")
+            Log.e("TTS", "Language data missing or not supported for ${locale.language}")
             val installIntent = Intent()
             installIntent.action = TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA
             onMissingData(installIntent)
             return
         }
 
-        // Prefer user's saved voice if it matches the locale
+        // Prefer user's saved voice if it matches the locale and obeys offline constraint
         val savedVoiceName = prefs.selectedVoiceName
         if (savedVoiceName != null) {
             val matchingVoice = tts!!.voices?.find { it.name == savedVoiceName }
             if (matchingVoice != null && matchingVoice.locale.language == locale.language) {
-                tts!!.voice = matchingVoice
-                Log.d("TTS", "Selected saved voice: ${matchingVoice.name}")
-                return
+                if (!forceOfflineMode || !matchingVoice.isNetworkConnectionRequired) {
+                    tts!!.voice = matchingVoice
+                    Log.d("TTS", "Selected saved voice: ${matchingVoice.name}")
+                    return
+                }
             }
         }
 
-        // Otherwise try to find a high-quality network voice for the locale
+        // Otherwise select optimal voice adhering to offline constraint
         try {
             val bestVoice = selectOptimalVoice(locale)
             if (bestVoice != null) {
+                if (forceOfflineMode && bestVoice.isNetworkConnectionRequired) {
+                    Log.w("TTS", "No offline voice installed for ${locale.language}")
+                    val installIntent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+                    onMissingData(installIntent)
+                    return
+                }
                 tts!!.voice = bestVoice
                 prefs.selectedVoiceName = bestVoice.name
-                Log.d("TTS", "Selected default voice: ${bestVoice.name}")
+                Log.d("TTS", "Selected voice: ${bestVoice.name} (offlineOnly=$forceOfflineMode)")
+            } else if (forceOfflineMode) {
+                Log.w("TTS", "No voice found for ${locale.language}")
+                val installIntent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+                onMissingData(installIntent)
             }
         } catch (e: Exception) {
             Log.e("TTS", "Failed to select specific voice: ${e.message}")
@@ -175,7 +199,8 @@ class StreamingTTSManager(
         if (!isReady || tts == null) return emptyList()
         val locale = Locale(languageCode)
         return try {
-            tts!!.voices?.filter { it.locale.language == locale.language } ?: emptyList()
+            val all = tts!!.voices?.filter { it.locale.language == locale.language } ?: emptyList()
+            if (forceOfflineMode) all.filter { !it.isNetworkConnectionRequired } else all
         } catch (e: Exception) {
             emptyList()
         }
@@ -186,6 +211,10 @@ class StreamingTTSManager(
         try {
             val specificVoice = tts!!.voices?.find { it.name == voiceName }
             if (specificVoice != null) {
+                if (forceOfflineMode && specificVoice.isNetworkConnectionRequired) {
+                    Log.w("TTS", "Requested voice $voiceName requires network, ignoring in offline mode")
+                    return
+                }
                 tts!!.voice = specificVoice
                 Log.d("TTS", "Manually selected voice: ${specificVoice.name}")
             }
@@ -197,6 +226,13 @@ class StreamingTTSManager(
     fun setSpeechRate(rate: Float) {
         if (!isReady || tts == null) return
         tts?.setSpeechRate(rate)
+    }
+
+    private var isFirstPhraseInTurn = true
+
+    fun onTurnStarted() {
+        isFirstPhraseInTurn = true
+        buffer.clear()
     }
 
     // Process incoming translated tokens
@@ -225,6 +261,7 @@ class StreamingTTSManager(
                 // Speak the phrase
                 if (phraseToSpeak.isNotEmpty()) {
                     speak(phraseToSpeak)
+                    isFirstPhraseInTurn = false
                 }
 
                 // Keep the remainder in the buffer
@@ -233,24 +270,28 @@ class StreamingTTSManager(
                 buffer.append(remainder)
             }
         } else {
-            // Incremental chunking: if we hit 3+ words or 25+ chars (for languages without spaces)
-            val words = currentText.split(" ")
-            if (words.size > maxBufferedWords || currentText.length >= maxBufferedChars) {
-                // Speak at the last word boundary so playback isn't stalled mid-word.
+            // Adaptive early dispatch: First phrase triggers early (3 words) for low TTFS; later phrases buffer up to 8 words for prosody
+            val targetWordCount = if (isFirstPhraseInTurn) 3 else maxBufferedWords
+            val targetCharCount = if (isFirstPhraseInTurn) 20 else maxBufferedChars
+
+            val words = currentText.trim().split(Regex("\\s+"))
+            if (words.size >= targetWordCount || currentText.length >= targetCharCount) {
                 val lastSpace = currentText.lastIndexOf(' ')
                 if (lastSpace > 0) {
                     val phraseToSpeak = sanitize(currentText.substring(0, lastSpace))
                     if (phraseToSpeak.isNotEmpty()) {
                         speak(phraseToSpeak)
+                        isFirstPhraseInTurn = false
                     }
                     val remainder = currentText.substring(lastSpace + 1)
                     buffer.clear()
                     buffer.append(remainder)
-                } else if (currentText.length >= maxBufferedChars) {
-                    // For languages without spaces, just speak the chunk
+                } else if (currentText.length >= targetCharCount) {
+                    // For languages without spaces (CJK), speak the chunk directly
                     val phraseToSpeak = sanitize(currentText)
                     if (phraseToSpeak.isNotEmpty()) {
                         speak(phraseToSpeak)
+                        isFirstPhraseInTurn = false
                     }
                     buffer.clear()
                 }
@@ -258,25 +299,34 @@ class StreamingTTSManager(
         }
     }
 
-    /** Strips Gemma system tags and markdown from a phrase before speaking. */
+    /**
+     * Exact model control-token filtering.
+     * Replaces unsafe greedy replacement that damaged real words (e.g. "turn" -> "return").
+     */
+    private val controlTokensRegex = Regex("<start_of_turn>|<end_of_turn>|<eos>|<bos>|<pad>|<[^>]+>|\\b(start_of_turn|end_of_turn)\\b")
+
     private fun sanitize(text: String): String {
-        return text.replace(Regex("<[^>]*>"), "")
-            .replace("end_of_turn", "")
-            .replace("start_of_turn", "")
-            .replace("eos", "")
-            .replace("turn", "")
-            .replace("model", "")
-            .replace("user", "")
+        return text.replace(controlTokensRegex, "")
             .replace("*", "")
             .trim()
     }
 
     private fun speak(text: String) {
-        Log.d("TTS", "Speaking: $text")
+        val clean = sanitize(text)
+        if (clean.isBlank()) return
+        // Do not log raw user speech/text in production logs for privacy
         val id = "utt_${System.currentTimeMillis()}_${utteranceCounter++}"
+        Log.d("TTS", "Dispatching utterance $id (length=${clean.length})")
         activeUtterances.add(id)
+        handler.removeCallbacks(watchdogRunnable)
+        handler.postDelayed(watchdogRunnable, 6000)
         onSpeakingStateChanged?.invoke(true)
-        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, id)
+        val result = tts?.speak(clean, TextToSpeech.QUEUE_ADD, null, id)
+        if (result != TextToSpeech.SUCCESS) {
+            Log.e("TTS", "tts.speak returned error code $result for id $id")
+            activeUtterances.remove(id)
+            checkSpeakingState()
+        }
     }
 
     fun playText(text: String) {
@@ -293,11 +343,15 @@ class StreamingTTSManager(
             speak(remainder)
         }
         buffer.clear()
+        isFirstPhraseInTurn = true
     }
 
     fun stop() {
         tts?.stop()
+        buffer.clear()
         activeUtterances.clear()
+        handler.removeCallbacks(watchdogRunnable)
+        isFirstPhraseInTurn = true
         onSpeakingStateChanged?.invoke(false)
     }
 
