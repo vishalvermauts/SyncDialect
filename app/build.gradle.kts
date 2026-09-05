@@ -11,8 +11,8 @@ android {
         applicationId = "com.syncdialect.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.1.3"
+        versionCode = 22
+        versionName = "2.0.0-beta1"
     }
 
     signingConfigs {
@@ -29,6 +29,9 @@ android {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
         }
     }
     compileOptions {
@@ -106,7 +109,9 @@ dependencies {
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.6.4!!")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4!!")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4!!")
 }
 
 // Dummy task to satisfy Android Studio Gradle Sync if it requests prepareKotlinBuildScriptModel
