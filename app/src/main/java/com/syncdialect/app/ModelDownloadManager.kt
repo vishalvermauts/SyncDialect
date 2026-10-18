@@ -37,6 +37,8 @@ class ModelDownloadManager(private val context: Context) {
         return File(context.filesDir, modelFileName).absolutePath
     }
 
+    fun getModelDisplayName(): String = "Gemma 4 E2B (2.58 GB)"
+
     suspend fun downloadModel(
         onProgress: (Int) -> Unit,
         onComplete: (Boolean) -> Unit

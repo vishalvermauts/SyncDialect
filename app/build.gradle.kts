@@ -11,8 +11,8 @@ android {
         applicationId = "com.syncdialect.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 22
-        versionName = "2.0.0-beta1"
+        versionCode = 24
+        versionName = "2.0.0-beta3"
     }
 
     signingConfigs {
@@ -109,9 +109,9 @@ dependencies {
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.6.4!!")
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4!!")
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4!!")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:${libs.versions.coroutines.get()}")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${libs.versions.coroutines.get()}")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:${libs.versions.coroutines.get()}")
 }
 
 // Dummy task to satisfy Android Studio Gradle Sync if it requests prepareKotlinBuildScriptModel

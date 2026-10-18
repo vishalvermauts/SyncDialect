@@ -93,16 +93,7 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         
-        // --- WORKAROUND FOR LITERTLM-ANDROID COROUTINES ABI BUG ---
-        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            if (throwable is NoSuchMethodError && throwable.message?.contains("close\$default") == true) {
-                android.util.Log.w("SyncDialect", "Ignored litertlm coroutines ABI crash on thread ${thread.name}")
-                return@setDefaultUncaughtExceptionHandler
-            }
-            defaultHandler?.uncaughtException(thread, throwable)
-        }
-        // ----------------------------------------------------------
+
 
         // Dismiss splash screen dynamically as soon as activity prepares
         splashScreen.setKeepOnScreenCondition { false }
@@ -364,7 +355,6 @@ class MainActivity : ComponentActivity() {
                                 val currentTargetTag = targetLanguageTag.value
 
                                 // Prepare TTS for a new turn
-                                ttsEngine.setLanguage(currentTargetTag)
                                 ttsEngine.onTurnStarted()
 
                                 lifecycleScope.launch(Dispatchers.IO) {
@@ -374,8 +364,13 @@ class MainActivity : ComponentActivity() {
                                         audioData = audioData,
                                         onLanguageDetected = { _ -> },
                                         onTokenGenerated = { token, latencyMs ->
-                                            val isEnd = token.contains("<end_of_turn>") || token.contains("end_of_turn") || token.contains("eos")
-                                            val clean = token.replace("<end_of_turn>", "").replace("\n", "")
+                                            val isEnd = token.contains("<end_of_turn>") || token.contains("end_of_turn") || token.contains("eos") || token.contains("<turn|>") || token.contains("<|turn>")
+                                            val clean = token.replace("<end_of_turn>", "")
+                                                .replace("<turn|>", "")
+                                                .replace("<|turn>", "")
+                                                .replace("<|channel>", "")
+                                                .replace("<channel|>", "")
+                                                .replace("\n", "")
                                             if (clean.isNotEmpty() && !clean.contains("[SILENCE]")) {
                                                 runOnUiThread {
                                                     val idx = messages.indexOfFirst { it.id == msgId }

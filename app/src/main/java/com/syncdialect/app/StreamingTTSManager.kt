@@ -52,10 +52,13 @@ class StreamingTTSManager(
         }
     }
 
+    private var currentLanguageTag: String? = null
+
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val watchdogRunnable = Runnable {
-        if (activeUtterances.isNotEmpty()) {
-            Log.w("TTS", "Watchdog triggered: clearing stuck utterances (${activeUtterances.size})")
+        val stillSpeaking = try { tts?.isSpeaking == true } catch (e: Exception) { false }
+        if (!stillSpeaking || activeUtterances.isNotEmpty()) {
+            Log.w("TTS", "Watchdog triggered: active=${activeUtterances.size}, hardwareSpeaking=$stillSpeaking. Forcing unmute.")
             activeUtterances.clear()
             checkSpeakingState()
         }
@@ -66,8 +69,8 @@ class StreamingTTSManager(
             override fun onStart(utteranceId: String?) {
                 Log.d("TTS", "onStart: $utteranceId")
                 handler.removeCallbacks(watchdogRunnable)
-                handler.postDelayed(watchdogRunnable, 6000) // 6 second safety watchdog
-                onSpeakingStateChanged?.invoke(true)
+                handler.postDelayed(watchdogRunnable, 5000) // 5 second safety watchdog
+                handler.post { onSpeakingStateChanged?.invoke(true) }
             }
 
             override fun onDone(utteranceId: String?) {
@@ -106,14 +109,20 @@ class StreamingTTSManager(
     }
 
     private fun checkSpeakingState() {
-        if (activeUtterances.isEmpty()) {
+        val hardwareSpeaking = try { tts?.isSpeaking == true } catch (e: Exception) { false }
+        if (activeUtterances.isEmpty() || !hardwareSpeaking) {
+            if (!hardwareSpeaking && activeUtterances.isNotEmpty()) {
+                activeUtterances.clear()
+            }
             handler.removeCallbacks(watchdogRunnable)
-            onSpeakingStateChanged?.invoke(false)
+            handler.post {
+                onSpeakingStateChanged?.invoke(false)
+            }
         }
     }
 
     fun isSpeaking(): Boolean {
-        return activeUtterances.isNotEmpty()
+        return activeUtterances.isNotEmpty() || (tts?.isSpeaking == true)
     }
 
     var forceOfflineMode: Boolean = false
@@ -142,6 +151,8 @@ class StreamingTTSManager(
 
     fun setLanguage(languageCode: String) {
         if (!isReady || tts == null) return
+        if (languageCode == currentLanguageTag) return // Avoid resetting active TTS voice & audio pipelines
+        currentLanguageTag = languageCode
         
         val locale = Locale(languageCode)
         val result = tts!!.setLanguage(locale)
@@ -233,6 +244,12 @@ class StreamingTTSManager(
     fun onTurnStarted() {
         isFirstPhraseInTurn = true
         buffer.clear()
+        val hardwareSpeaking = try { tts?.isSpeaking == true } catch (e: Exception) { false }
+        if (!hardwareSpeaking) {
+            activeUtterances.clear()
+            handler.removeCallbacks(watchdogRunnable)
+            handler.post { onSpeakingStateChanged?.invoke(false) }
+        }
     }
 
     // Process incoming translated tokens
@@ -319,8 +336,8 @@ class StreamingTTSManager(
         Log.d("TTS", "Dispatching utterance $id (length=${clean.length})")
         activeUtterances.add(id)
         handler.removeCallbacks(watchdogRunnable)
-        handler.postDelayed(watchdogRunnable, 6000)
-        onSpeakingStateChanged?.invoke(true)
+        handler.postDelayed(watchdogRunnable, 5000)
+        handler.post { onSpeakingStateChanged?.invoke(true) }
         val result = tts?.speak(clean, TextToSpeech.QUEUE_ADD, null, id)
         if (result != TextToSpeech.SUCCESS) {
             Log.e("TTS", "tts.speak returned error code $result for id $id")

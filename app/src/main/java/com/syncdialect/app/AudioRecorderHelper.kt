@@ -17,7 +17,14 @@ class AudioRecorderHelper(private val prefs: AppPreferences) {
     @Volatile private var isRecording = false
     private val sampleRate = 16000
 
-    @Volatile var isMuted = false
+    @Volatile private var muteTimestamp = 0L
+    @Volatile var isMuted: Boolean = false
+        set(value) {
+            field = value
+            if (value) {
+                muteTimestamp = System.currentTimeMillis()
+            }
+        }
 
     @SuppressLint("MissingPermission")
     fun startContinuousRecording(onChunkReady: (ByteArray) -> Unit) {
@@ -64,7 +71,7 @@ class AudioRecorderHelper(private val prefs: AppPreferences) {
             var speechFrames = 0
             val minChunkBytes = 16000 // 0.5 seconds minimum (at 16kHz 16-bit mono: 32000 B/s)
             val maxChunkBytes = 96000  // 3 seconds maximum — targets ~1.5s latency
-            val minSpeechFrames = 10   // Require 200ms (10 * 20ms) of VAD-confirmed speech
+            val minSpeechFrames = 8    // Require 160ms (8 * 20ms) of VAD-confirmed speech
 
             // Pre-roll buffer: Keep last 8 frames (~160ms) of audio to prevent clipping onsets
             val preRollCapacity = 8
@@ -81,6 +88,12 @@ class AudioRecorderHelper(private val prefs: AppPreferences) {
                     }
                     
                     if (readSum == frameSizeBytes && isRecording) {
+                        // Safety timeout: If muted for >6 seconds without being cleared, force unmute
+                        if (isMuted && System.currentTimeMillis() - muteTimestamp > 6000) {
+                            Log.w("AudioRecorder", "Safety auto-unmute triggered after 6s of continuous mute")
+                            isMuted = false
+                        }
+
                         if (isMuted) {
                             chunkStream.reset()
                             silenceFrames = 0
@@ -130,25 +143,15 @@ class AudioRecorderHelper(private val prefs: AppPreferences) {
 
                         // If enough silence and we have captured audio, yield the chunk
                         if ((silenceFrames >= requiredSilenceFrames && chunkStream.size() >= 8000) || shouldForceFlush) {
-                            if (speechFrames >= minSpeechFrames) { // Require at least 200ms of actual speech
+                            if (speechFrames >= minSpeechFrames) { // Require at least 160ms of actual speech
                                 var chunkData = chunkStream.toByteArray()
-                                // Energy gate: compute RMS; skip if audio is too quiet (near-silence)
-                                val rms = chunkData.foldIndexed(0L) { i, acc, _ ->
-                                    if (i % 2 == 0) {
-                                        val sample = (chunkData[i].toInt() and 0xFF) or (chunkData[i + 1].toInt() shl 8)
-                                        acc + sample.toLong() * sample.toLong()
-                                    } else acc
-                                } / (chunkData.size / 2)
-                                if (rms > 500000L) { // ~707 RMS threshold (out of 32768 max)
-                                    if (chunkData.size < minChunkBytes) {
-                                        val paddedData = ByteArray(minChunkBytes)
-                                        System.arraycopy(chunkData, 0, paddedData, 0, chunkData.size)
-                                        chunkData = paddedData
-                                    }
-                                    onChunkReady(chunkData)
-                                } else {
-                                    Log.d("AudioRecorder", "Chunk skipped: RMS too low ($rms) — near-silence")
+                                if (chunkData.size < minChunkBytes) {
+                                    val paddedData = ByteArray(minChunkBytes)
+                                    System.arraycopy(chunkData, 0, paddedData, 0, chunkData.size)
+                                    chunkData = paddedData
                                 }
+                                Log.d("AudioRecorder", "Yielding speech chunk: ${chunkData.size} bytes (speechFrames=$speechFrames)")
+                                onChunkReady(chunkData)
                             } else {
                                 Log.d("AudioRecorder", "Chunk dropped due to insufficient speech frames: $speechFrames (need $minSpeechFrames)")
                             }

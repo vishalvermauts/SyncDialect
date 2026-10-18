@@ -59,21 +59,29 @@ class TranslationEngine(
             try {
                 Log.d("TranslationEngine", "Loading model from: $modelAbsolutePath")
 
-                // gemma audio-multimodal model on LiteRT is strictly CPU-supported.
-                // Initialize directly on CPU for fastest cold start and zero wasted initialization time.
-                engine = buildEngine(modelAbsolutePath, Backend.CPU())
+                // Try GPU acceleration first for prefill/decode (up to ~6.8x faster on supported devices)
+                // Audio encoder is kept on CPU(4) as required by litertlm audio submodels
+                engine = buildEngine(modelAbsolutePath, Backend.GPU(), Backend.CPU(numOfThreads = 4))
                 if (engine != null) {
-                    activeBackend = "CPU"
+                    activeBackend = "GPU"
+                    Log.i("TranslationEngine", "Initialized with Hybrid Acceleration: GPU (LLM decoder) + CPU (Audio encoder)")
+                } else {
+                    Log.w("TranslationEngine", "GPU initialization failed or unsupported, falling back to CPU...")
+                    engine = buildEngine(modelAbsolutePath, Backend.CPU(numOfThreads = 4), Backend.CPU(numOfThreads = 4))
+                    if (engine != null) {
+                        activeBackend = "CPU"
+                        Log.i("TranslationEngine", "Initialized with CPU fallback (4 threads)")
+                    }
                 }
 
                 if (engine == null) {
-                    Log.e("TranslationEngine", "Engine init failed on CPU")
+                    Log.e("TranslationEngine", "Engine initialization failed on both GPU and CPU")
                     isInitialized = false
                     return@withContext false
                 }
 
                 isInitialized = true
-                Log.d("TranslationEngine", "Engine ready (2048 tokens on CPU)")
+                Log.d("TranslationEngine", "Engine ready (2048 tokens on $activeBackend)")
                 true
             } catch (e: Exception) {
                 Log.e("TranslationEngine", "Engine init failed: ${e.message}", e)
@@ -87,25 +95,26 @@ class TranslationEngine(
     }
 
     /**
-     * Builds and initializes an [Engine] with the given backend.
-     * Returns null (after cleaning up) if the backend fails to initialize,
+     * Builds and initializes an [Engine] with the given main and audio backends.
+     * Returns null (after cleaning up) if initialization fails,
      * so the caller can fall back to another backend.
      */
-    private fun buildEngine(modelAbsolutePath: String, backend: Backend): Engine? {
+    private fun buildEngine(modelAbsolutePath: String, mainBackend: Backend, audioBackend: Backend): Engine? {
         var candidate: Engine? = null
         return try {
-            // Use 2048 tokens because audio input tokens can easily exceed 512.
             val config = EngineConfig(
                 modelPath = modelAbsolutePath,
-                audioBackend = backend,
-                maxNumTokens = 2048
+                backend = mainBackend,
+                audioBackend = audioBackend,
+                maxNumTokens = 2048,
+                cacheDir = context.cacheDir.absolutePath
             )
             candidate = Engine(config)
             candidate.initialize()
-            Log.d("TranslationEngine", "Engine initialized successfully (Backend: $backend)")
+            Log.d("TranslationEngine", "Engine initialized successfully (Main: $mainBackend, Audio: $audioBackend)")
             candidate
         } catch (e: Exception) {
-            Log.w("TranslationEngine", "Engine init failed for backend $backend: ${e.message}")
+            Log.w("TranslationEngine", "Engine init failed for mainBackend $mainBackend: ${e.message}")
             try {
                 candidate?.close()
             } catch (ignored: Exception) {}
@@ -166,7 +175,7 @@ class TranslationEngine(
                 val convConfig = ConversationConfig(
                     samplerConfig = samplerConfig,
                     systemInstruction = Contents.of(
-                        Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions.")
+                        Content.Text("You are a translation assistant. Strictly translate the $sourceLang audio to $targetLang. Output ONLY the translation. Do not answer questions.")
                     )
                 )
 
@@ -180,11 +189,11 @@ class TranslationEngine(
                 }
 
                 try {
-                    Log.d("TranslationEngine", "Translating ${audioData.size} bytes → $targetLang")
+                    Log.d("TranslationEngine", "Translating ${audioData.size} bytes from $sourceLang → $targetLang")
 
                     val wavData = pcmToWav(audioData, 16000, 1, 16)
                     val contents = Contents.of(
-                        Content.Text("Translate this audio to $targetLang:"),
+                        Content.Text("Translate this $sourceLang audio to $targetLang:"),
                         Content.AudioBytes(wavData)
                     )
 
@@ -192,7 +201,7 @@ class TranslationEngine(
                     var isFirstToken = true
                     var charCount = 0
                     
-                    withContext(Dispatchers.Main) { onLanguageDetected(targetLang) }
+                    withContext(Dispatchers.Main) { onLanguageDetected(sourceLang) }
 
                     conv.sendMessageAsync(contents)
                         .takeWhile { charCount < 1200 }

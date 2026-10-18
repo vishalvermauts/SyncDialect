@@ -42,7 +42,8 @@ fun SettingsScreen(
     forceOfflineTts: MutableState<Boolean>,
     ttsEngine: StreamingTTSManager,
     downloadManager: ModelDownloadManager,
-    mainActivityContext: android.content.Context
+    mainActivityContext: android.content.Context,
+    onModelDownloaded: (() -> Unit)? = null
 ) {
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -59,7 +60,9 @@ fun SettingsScreen(
                 onProgress = { progress -> downloadProgress.value = progress / 100f },
                 onComplete = { success -> 
                     isDownloading.value = false
-                    if (success) isModelReady.value = true
+                    if (success) {
+                        onModelDownloaded?.invoke() ?: run { isModelReady.value = true }
+                    }
                 }
             )
         }
@@ -153,7 +156,9 @@ fun SettingsScreen(
                                         onProgress = { progress -> downloadProgress.value = progress / 100f },
                                         onComplete = { success -> 
                                             isDownloading.value = false
-                                            if (success) isModelReady.value = true
+                                            if (success) {
+                                                onModelDownloaded?.invoke() ?: run { isModelReady.value = true }
+                                            }
                                         }
                                     )
                                 }
