@@ -25,3 +25,11 @@ temp_aar*
 temp_litertlm/
 aar_inspect/
 log*.txt
+kaggle_*.log
+kaggle_build/
+kaggle_smoke_check/
+kaggle_error_logs/
+push_chunks.py
+stream.py
+test.txt
+SyncDialect V2 .md

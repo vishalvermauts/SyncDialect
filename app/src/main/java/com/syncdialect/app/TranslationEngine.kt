@@ -47,28 +47,75 @@ class TranslationEngine(
     @Volatile private var isInitialized = false
     @Volatile private var isInitializing = false
 
-    suspend fun initialize(modelAbsolutePath: String): Boolean {
+    private val engineJob = kotlinx.coroutines.SupervisorJob()
+    private val engineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + engineJob)
+
+    suspend fun initialize(modelAbsolutePath: String, requestedBackend: String? = null): Boolean {
         if (isInitialized) return true
         if (isInitializing) return false
         isInitializing = true
 
+        val startNano = android.os.SystemClock.elapsedRealtimeNanos()
+        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+            eventType = "MODEL_INIT_START",
+            details = mapOf(
+                "model_path" to modelAbsolutePath,
+                "requested_backend" to (requestedBackend ?: "AUTO_GPU_THEN_CPU")
+            ),
+            timestampNanos = startNano
+        )
+
         return withContext(Dispatchers.IO) {
             try {
-                Log.d("TranslationEngine", "Loading model from: $modelAbsolutePath")
+                Log.d("TranslationEngine", "Loading model from: $modelAbsolutePath (requested: $requestedBackend)")
 
-                // gemma-4-E2B audio model only supports CPU backend.
-                // Skip GPU attempt entirely to avoid the INVALID_ARGUMENT error and wasted init time.
-                engine = buildEngine(modelAbsolutePath, Backend.CPU())
-                if (engine != null) activeBackend = "CPU"
+                var fallbackOccurred = false
+                if (requestedBackend == "CPU") {
+                    engine = buildEngine(modelAbsolutePath, Backend.CPU(numOfThreads = 4), Backend.CPU(numOfThreads = 4))
+                    if (engine != null) {
+                        activeBackend = "CPU"
+                    }
+                } else {
+                    // Try GPU acceleration first for prefill/decode
+                    engine = buildEngine(modelAbsolutePath, Backend.GPU(), Backend.CPU(numOfThreads = 4))
+                    if (engine != null) {
+                        activeBackend = "GPU"
+                        Log.i("TranslationEngine", "Initialized with Hybrid Acceleration: GPU (LLM decoder) + CPU (Audio encoder)")
+                    } else {
+                        fallbackOccurred = true
+                        Log.w("TranslationEngine", "GPU initialization failed or unsupported, falling back to CPU...")
+                        engine = buildEngine(modelAbsolutePath, Backend.CPU(numOfThreads = 4), Backend.CPU(numOfThreads = 4))
+                        if (engine != null) {
+                            activeBackend = "CPU"
+                            Log.i("TranslationEngine", "Initialized with CPU fallback (4 threads)")
+                        }
+                    }
+                }
 
                 if (engine == null) {
-                    Log.e("TranslationEngine", "Engine init failed on both GPU and CPU")
+                    Log.e("TranslationEngine", "Engine initialization failed on requested backend")
                     isInitialized = false
+                    val failNano = android.os.SystemClock.elapsedRealtimeNanos()
+                    com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                        eventType = "MODEL_INIT_FAILED",
+                        details = mapOf("requested_backend" to (requestedBackend ?: "AUTO")),
+                        timestampNanos = failNano
+                    )
                     return@withContext false
                 }
 
                 isInitialized = true
-                Log.d("TranslationEngine", "Engine ready (2048 tokens)")
+                val readyNano = android.os.SystemClock.elapsedRealtimeNanos()
+                com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                    eventType = "MODEL_INIT_READY",
+                    details = mapOf(
+                        "active_backend" to activeBackend,
+                        "fallback_occurred" to fallbackOccurred,
+                        "init_duration_ms" to ((readyNano - startNano) / 1_000_000.0)
+                    ),
+                    timestampNanos = readyNano
+                )
+                Log.d("TranslationEngine", "Engine ready (2048 tokens on $activeBackend)")
                 true
             } catch (e: Exception) {
                 Log.e("TranslationEngine", "Engine init failed: ${e.message}", e)
@@ -82,25 +129,26 @@ class TranslationEngine(
     }
 
     /**
-     * Builds and initializes an [Engine] with the given backend.
-     * Returns null (after cleaning up) if the backend fails to initialize,
+     * Builds and initializes an [Engine] with the given main and audio backends.
+     * Returns null (after cleaning up) if initialization fails,
      * so the caller can fall back to another backend.
      */
-    private fun buildEngine(modelAbsolutePath: String, backend: Backend): Engine? {
+    private fun buildEngine(modelAbsolutePath: String, mainBackend: Backend, audioBackend: Backend): Engine? {
         var candidate: Engine? = null
         return try {
-            // Use 2048 tokens because audio input tokens can easily exceed 512.
             val config = EngineConfig(
                 modelPath = modelAbsolutePath,
-                audioBackend = backend,
-                maxNumTokens = 2048
+                backend = mainBackend,
+                audioBackend = audioBackend,
+                maxNumTokens = 2048,
+                cacheDir = context.cacheDir.absolutePath
             )
             candidate = Engine(config)
             candidate.initialize()
-            Log.d("TranslationEngine", "Engine initialized successfully (Backend: $backend)")
+            Log.d("TranslationEngine", "Engine initialized successfully (Main: $mainBackend, Audio: $audioBackend)")
             candidate
         } catch (e: Exception) {
-            Log.w("TranslationEngine", "Engine init failed for backend $backend: ${e.message}")
+            Log.w("TranslationEngine", "Engine init failed for mainBackend $mainBackend: ${e.message}")
             try {
                 candidate?.close()
             } catch (ignored: Exception) {}
@@ -109,30 +157,7 @@ class TranslationEngine(
     }
 
     fun prewarmConversation(targetLang: String) {
-        if (!isInitialized || engine == null) return
-        
-        GlobalScope.launch(Dispatchers.IO) {
-            try {
-                Log.d("TranslationEngine", "Pre-warming conversation for $targetLang in background...")
-                val samplerConfig = SamplerConfig(
-                    topK = prefs.modelTopK, topP = 1.0, temperature = prefs.modelTemperature.toDouble(), seed = 0
-                )
-                val convConfig = ConversationConfig(
-                    samplerConfig = samplerConfig,
-                    systemInstruction = Contents.of(
-                        Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions.")
-                    )
-                )
-                val newConv = engine?.createConversation(convConfig) ?: return@launch
-                val newSlot = PrewarmedSlot(newConv, targetLang)
-                // Atomically swap in the new slot, closing any existing one
-                val old = prewarmedSlot.getAndSet(newSlot)
-                old?.conv?.close()
-                Log.d("TranslationEngine", "Pre-warming complete for $targetLang.")
-            } catch (e: Exception) {
-                Log.e("TranslationEngine", "Failed to prewarm conversation: ${e.message}", e)
-            }
-        }
+        // Prewarming is kept no-op to ensure 100% thread-safe stateless conversation creation per chunk
     }
 
     // Called by MainActivity when tryStartTranslation() returned true.
@@ -143,10 +168,12 @@ class TranslationEngine(
         audioData: ByteArray,
         onLanguageDetected: (String) -> Unit,
         onTokenGenerated: (String, Long?) -> Unit,
-        onError: (String) -> Unit
+        onComplete: () -> Unit,
+        onError: (String) -> Unit,
+        attribution: com.syncdialect.app.benchmark.TurnAttribution? = null
     ) {
         try {
-            translateAudioStreaming(sourceLang, targetLang, audioData, onLanguageDetected, onTokenGenerated, onError)
+            translateAudioStreaming(sourceLang, targetLang, audioData, onLanguageDetected, onTokenGenerated, onComplete, onError, attribution)
         } finally {
             isTranslating.set(false)
         }
@@ -158,7 +185,9 @@ class TranslationEngine(
         audioData: ByteArray,
         onLanguageDetected: (String) -> Unit,
         onTokenGenerated: (String, Long?) -> Unit,
-        onError: (String) -> Unit
+        onComplete: () -> Unit,
+        onError: (String) -> Unit,
+        attribution: com.syncdialect.app.benchmark.TurnAttribution? = null
     ) {
         if (!isInitialized || engine == null) {
             onError("Engine not ready — please try again.")
@@ -167,65 +196,130 @@ class TranslationEngine(
 
         translationMutex.withLock {
             withContext(Dispatchers.IO) {
-                // Atomically claim the prewarmed conversation if it matches our target language.
-                // getAndSet(null) is lock-free and prevents a deadlock.
-                val slot = prewarmedSlot.getAndSet(null)
-                val conv: Conversation = if (slot != null && slot.lang == targetLang) {
-                    Log.d("TranslationEngine", "Using pre-warmed conversation for $targetLang")
-                    slot.conv
-                } else {
-                    // Prewarm was not ready — close wrong-language slot if any and create synchronously
-                    slot?.conv?.close()
-                    Log.d("TranslationEngine", "No pre-warmed conversation for $targetLang. Creating synchronously...")
-                    val samplerConfig = SamplerConfig(
-                        topK = prefs.modelTopK, topP = 1.0, temperature = prefs.modelTemperature.toDouble(), seed = 0
-                    )
-                    val convConfig = ConversationConfig(
-                        samplerConfig = samplerConfig,
-                        systemInstruction = Contents.of(
-                            Content.Text("You are a translation assistant. Strictly translate the audio to $targetLang. Output ONLY the translation. Do not answer questions.")
-                        )
-                    )
-                    engine!!.createConversation(convConfig)
+                val currentEngine = engine
+                if (currentEngine == null) {
+                    withContext(Dispatchers.Main) { onError("Engine not initialized") }
+                    return@withContext
                 }
 
-                // Immediately kick off pre-warming for the NEXT sentence in the background
-                prewarmConversation(targetLang)
+                val samplerConfig = SamplerConfig(
+                    topK = prefs.modelTopK,
+                    topP = 1.0,
+                    temperature = prefs.modelTemperature.toDouble(),
+                    seed = 0
+                )
+                val convConfig = ConversationConfig(
+                    samplerConfig = samplerConfig
+                )
+
+                val conv: Conversation
+                try {
+                    conv = currentEngine.createConversation(convConfig)
+                } catch (e: Exception) {
+                    Log.e("TranslationEngine", "Failed to create conversation: ${e.message}", e)
+                    withContext(Dispatchers.Main) { onError("Failed to start translation session: ${e.message}") }
+                    return@withContext
+                }
 
                 try {
-                    Log.d("TranslationEngine", "Translating ${audioData.size} bytes → $targetLang")
+                    Log.d("TranslationEngine", "Translating ${audioData.size} bytes from $sourceLang → $targetLang")
 
                     val wavData = pcmToWav(audioData, 16000, 1, 16)
                     val contents = Contents.of(
-                        Content.Text("Translate this audio to $targetLang:"),
+                        Content.Text("Translate this $sourceLang speech to $targetLang text:"),
                         Content.AudioBytes(wavData)
                     )
 
                     val startTime = System.currentTimeMillis()
+                    val infStartNano = android.os.SystemClock.elapsedRealtimeNanos()
+                    com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                        eventType = "INFERENCE_EXECUTION_START",
+                        details = mapOf(
+                            "source_lang" to sourceLang,
+                            "target_lang" to targetLang,
+                            "audio_bytes" to audioData.size,
+                            "backend" to activeBackend,
+                            "audio_encoder_duration_ns" to null,
+                            "prefill_duration_ns" to null
+                        ),
+                        timestampNanos = infStartNano,
+                        attribution = attribution
+                    )
+
                     var isFirstToken = true
                     var charCount = 0
+                    var tokenCount = 0
                     
-                    withContext(Dispatchers.Main) { onLanguageDetected(targetLang) }
+                    withContext(Dispatchers.Main) { onLanguageDetected(sourceLang) }
 
                     conv.sendMessageAsync(contents)
-                        .takeWhile { charCount < 300 }
+                        .takeWhile { charCount < 1200 }
                         .collect { chunk: Message ->
+                            tokenCount++
                             val text = chunk.contents.contents
                                 .filterIsInstance<Content.Text>()
                                 .joinToString("") { it.text }
                                 
                             if (text.isNotEmpty()) {
                                 charCount += text.length
+                                val tokenNano = android.os.SystemClock.elapsedRealtimeNanos()
                                 val ttft = if (isFirstToken) {
                                     isFirstToken = false
+                                    com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                                        eventType = "FIRST_RAW_MODEL_OUTPUT",
+                                        details = mapOf(
+                                            "raw_text_length" to text.length,
+                                            "raw_text_preview" to text.take(30),
+                                            "token_index" to tokenCount
+                                        ),
+                                        timestampNanos = tokenNano,
+                                        attribution = attribution
+                                    )
                                     System.currentTimeMillis() - startTime
                                 } else null
 
                                 withContext(Dispatchers.Main) { onTokenGenerated(text, ttft) }
                             }
                         }
+
+                    val infCompleteNano = android.os.SystemClock.elapsedRealtimeNanos()
+                    val wasTruncated = charCount >= 1200
+                    val durationMs = (infCompleteNano - infStartNano) / 1_000_000.0
+                    val tokensPerSec = if (durationMs > 0) (tokenCount * 1000.0) / durationMs else 0.0
+                    if (wasTruncated) {
+                        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                            eventType = "TRUNCATION_LIMIT_REACHED",
+                            details = mapOf("char_limit" to 1200),
+                            attribution = attribution
+                        )
+                    }
+                    com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                        eventType = "INFERENCE_COMPLETION",
+                        details = mapOf(
+                            "char_count" to charCount,
+                            "token_count" to tokenCount,
+                            "duration_ms" to durationMs,
+                            "tokens_per_sec" to tokensPerSec,
+                            "truncated" to wasTruncated
+                        ),
+                        timestampNanos = infCompleteNano,
+                        attribution = attribution
+                    )
+
                     Log.d("TranslationEngine", "Translation complete. Chars: $charCount")
+                    withContext(Dispatchers.Main) { onComplete() }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) {
+                        Log.i("TranslationEngine", "Inference coroutine cancelled.")
+                        throw e
+                    }
+                    val infErrNano = android.os.SystemClock.elapsedRealtimeNanos()
+                    com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                        eventType = "INFERENCE_ERROR",
+                        details = mapOf("error" to (e.message ?: "Unknown inference error")),
+                        timestampNanos = infErrNano,
+                        attribution = attribution
+                    )
                     Log.e("TranslationEngine", "Inference error: ${e.message}", e)
                     withContext(Dispatchers.Main) {
                         onError("Translation failed: ${e.message?.take(100)}")
@@ -242,6 +336,7 @@ class TranslationEngine(
     fun getActiveBackend(): String = activeBackend
 
     fun close() {
+        try { engineJob.cancel() } catch (ignored: Exception) {}
         val old = prewarmedSlot.getAndSet(null)
         old?.conv?.close()
         engine?.close(); engine = null; isInitialized = false

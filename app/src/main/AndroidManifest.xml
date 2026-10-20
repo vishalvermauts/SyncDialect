@@ -17,7 +17,7 @@
     </queries>
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -39,6 +39,13 @@
             android:name=".ModelDownloadService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
+
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libvndksupport.so"
+            android:required="false" />
     </application>
 
 </manifest>

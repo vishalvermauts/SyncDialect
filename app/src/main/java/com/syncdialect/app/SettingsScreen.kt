@@ -42,7 +42,9 @@ fun SettingsScreen(
     forceOfflineTts: MutableState<Boolean>,
     ttsEngine: StreamingTTSManager,
     downloadManager: ModelDownloadManager,
-    mainActivityContext: android.content.Context
+    mainActivityContext: android.content.Context,
+    onModelDownloaded: (() -> Unit)? = null,
+    onLanguagePacksUpdated: (() -> Unit)? = null
 ) {
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -59,7 +61,9 @@ fun SettingsScreen(
                 onProgress = { progress -> downloadProgress.value = progress / 100f },
                 onComplete = { success -> 
                     isDownloading.value = false
-                    if (success) isModelReady.value = true
+                    if (success) {
+                        onModelDownloaded?.invoke() ?: run { isModelReady.value = true }
+                    }
                 }
             )
         }
@@ -153,7 +157,9 @@ fun SettingsScreen(
                                         onProgress = { progress -> downloadProgress.value = progress / 100f },
                                         onComplete = { success -> 
                                             isDownloading.value = false
-                                            if (success) isModelReady.value = true
+                                            if (success) {
+                                                onModelDownloaded?.invoke() ?: run { isModelReady.value = true }
+                                            }
                                         }
                                     )
                                 }
@@ -172,7 +178,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(16.dp))
 
         // 2. ML KIT LANGUAGE PACKS
-        LanguagePacksCard(AccentCoral, CardBackground, CardBorder)
+        LanguagePacksCard(AccentCoral, CardBackground, CardBorder, onLanguagePacksUpdated)
 
         Spacer(Modifier.height(16.dp))
 
@@ -385,12 +391,18 @@ fun getFlagEmoji(localeTag: String): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LanguagePacksCard(accentColor: Color, cardBackground: Color, cardBorder: Color) {
+fun LanguagePacksCard(
+    accentColor: Color,
+    cardBackground: Color,
+    cardBorder: Color,
+    onLanguagePacksUpdated: (() -> Unit)? = null
+) {
     var downloadedModels by remember { mutableStateOf<Set<String>>(emptySet()) }
     var downloadingModels by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isChecking by remember { mutableStateOf(true) }
     var showAddDialog by remember { mutableStateOf(false) }
     var languageToDelete by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
     
     val allTags = TranslateLanguage.getAllLanguages()
     val modelManager = RemoteModelManager.getInstance()
@@ -400,6 +412,7 @@ fun LanguagePacksCard(accentColor: Color, cardBackground: Color, cardBorder: Col
             .addOnSuccessListener { models ->
                 downloadedModels = models.map { it.language }.toSet()
                 isChecking = false
+                onLanguagePacksUpdated?.invoke()
             }
             .addOnFailureListener {
                 isChecking = false
@@ -471,6 +484,35 @@ fun LanguagePacksCard(accentColor: Color, cardBackground: Color, cardBorder: Col
                     Spacer(Modifier.height(16.dp))
                 }
                 
+                if (downloadingModels.isNotEmpty()) {
+                    Text("Downloading", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                    downloadingModels.forEach { tag ->
+                        val langInfo = allLanguages.find { it.second == tag }
+                        val displayName = langInfo?.first ?: tag
+                        val flag = langInfo?.third ?: "🌐"
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(flag, fontSize = 20.sp)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(displayName, color = Color.White, fontSize = 16.sp)
+                                    Text("Downloading in background...", color = accentColor, fontSize = 12.sp)
+                                }
+                            }
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = accentColor,
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+
                 Button(
                     onClick = { showAddDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
@@ -495,12 +537,19 @@ fun LanguagePacksCard(accentColor: Color, cardBackground: Color, cardBorder: Col
                                         modifier = Modifier.fillMaxWidth().clickable {
                                             showAddDialog = false
                                             val tag = lang.second
-                                            val model = TranslateRemoteModel.Builder(tag).build()
+                                            val langName = lang.first
                                             downloadingModels = downloadingModels + tag
+                                            android.widget.Toast.makeText(context, "Downloading $langName pack...", android.widget.Toast.LENGTH_SHORT).show()
+                                            val model = TranslateRemoteModel.Builder(tag).build()
                                             modelManager.download(model, DownloadConditions.Builder().build())
                                                 .addOnSuccessListener {
                                                     downloadingModels = downloadingModels - tag
                                                     checkModels()
+                                                    android.widget.Toast.makeText(context, "$langName downloaded and ready!", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                                .addOnFailureListener { e ->
+                                                    downloadingModels = downloadingModels - tag
+                                                    android.widget.Toast.makeText(context, "Failed to download $langName: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                                                 }
                                         }.padding(16.dp),
                                         verticalAlignment = Alignment.CenterVertically
@@ -533,6 +582,7 @@ fun LanguagePacksCard(accentColor: Color, cardBackground: Color, cardBorder: Col
                                     val model = TranslateRemoteModel.Builder(tag).build()
                                     modelManager.deleteDownloadedModel(model).addOnSuccessListener {
                                         checkModels()
+                                        onLanguagePacksUpdated?.invoke()
                                     }
                                     languageToDelete = null
                                 },
