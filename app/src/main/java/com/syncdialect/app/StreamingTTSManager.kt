@@ -8,7 +8,7 @@ import java.util.Locale
 
 class StreamingTTSManager(
     private val context: Context,
-    private val onMissingData: (Intent?) -> Unit
+    private val onMissingData: (Intent?) -> Unit = {}
 ) : TextToSpeech.OnInitListener {
 
     private val prefs = AppPreferences(context)
@@ -21,15 +21,26 @@ class StreamingTTSManager(
 
     var onSpeakingStateChanged: ((Boolean) -> Unit)? = null
     private val activeUtterances = java.util.Collections.synchronizedSet(HashSet<String>())
+    fun activeUtterancesCount(): Int = activeUtterances.size
     private var utteranceCounter = 0L
 
     init {
+        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+            eventType = "TTS_INIT_START",
+            details = mapOf("engine" to "com.google.android.tts")
+        )
         tts = TextToSpeech(context, this, "com.google.android.tts")
     }
 
     override fun onInit(status: Int) {
+        val now = android.os.SystemClock.elapsedRealtimeNanos()
         if (status == TextToSpeech.SUCCESS) {
             isReady = true
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "TTS_INIT_READY",
+                details = mapOf("engine" to "com.google.android.tts", "success" to true),
+                timestampNanos = now
+            )
             setupUtteranceListener()
             
             // Set Low Latency Audio Attributes for faster playback
@@ -64,45 +75,103 @@ class StreamingTTSManager(
         }
     }
 
+    private var activeTurnAttribution: com.syncdialect.app.benchmark.TurnAttribution? = null
+    private val utteranceAttributionMap = java.util.concurrent.ConcurrentHashMap<String, com.syncdialect.app.benchmark.TurnAttribution>()
+
     private fun setupUtteranceListener() {
         tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
+                val startNano = android.os.SystemClock.elapsedRealtimeNanos()
                 Log.d("TTS", "onStart: $utteranceId")
+                val attr = utteranceId?.let { utteranceAttributionMap[it] } ?: activeTurnAttribution
+                com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                    eventType = "TTS_ON_START",
+                    details = mapOf("label" to "software playback-start latency"),
+                    timestampNanos = startNano,
+                    utteranceId = utteranceId,
+                    attribution = attr
+                )
                 handler.removeCallbacks(watchdogRunnable)
                 handler.postDelayed(watchdogRunnable, 5000) // 5 second safety watchdog
                 handler.post { onSpeakingStateChanged?.invoke(true) }
             }
 
             override fun onDone(utteranceId: String?) {
+                val doneNano = android.os.SystemClock.elapsedRealtimeNanos()
                 Log.d("TTS", "onDone: $utteranceId")
+                val attr = utteranceId?.let { utteranceAttributionMap.remove(it) } ?: activeTurnAttribution
                 if (utteranceId != null) {
                     activeUtterances.remove(utteranceId)
+                }
+                val isFinal = activeUtterances.isEmpty()
+                com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                    eventType = if (isFinal) "FINAL_RELEVANT_TTS_ON_DONE" else "TTS_ON_DONE",
+                    details = mapOf("is_final" to isFinal),
+                    timestampNanos = doneNano,
+                    utteranceId = utteranceId,
+                    attribution = attr
+                )
+                if (isFinal) {
+                    com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                        eventType = "FINAL_PLAYBACK_COMPLETION",
+                        details = mapOf("utterance_id" to (utteranceId ?: "")),
+                        timestampNanos = doneNano,
+                        utteranceId = utteranceId,
+                        attribution = attr
+                    )
                 }
                 checkSpeakingState()
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
+                val errNano = android.os.SystemClock.elapsedRealtimeNanos()
                 Log.e("TTS", "onError: $utteranceId")
+                val attr = utteranceId?.let { utteranceAttributionMap.remove(it) } ?: activeTurnAttribution
                 if (utteranceId != null) {
                     activeUtterances.remove(utteranceId)
                 }
+                com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                    eventType = "TTS_ERROR",
+                    details = mapOf("error" to "legacy_error"),
+                    timestampNanos = errNano,
+                    utteranceId = utteranceId,
+                    attribution = attr
+                )
                 checkSpeakingState()
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
+                val errNano = android.os.SystemClock.elapsedRealtimeNanos()
                 Log.e("TTS", "onError: $utteranceId, code: $errorCode")
+                val attr = utteranceId?.let { utteranceAttributionMap.remove(it) } ?: activeTurnAttribution
                 if (utteranceId != null) {
                     activeUtterances.remove(utteranceId)
                 }
+                com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                    eventType = "TTS_ERROR",
+                    details = mapOf("error_code" to errorCode),
+                    timestampNanos = errNano,
+                    utteranceId = utteranceId,
+                    attribution = attr
+                )
                 checkSpeakingState()
             }
 
             override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                val stopNano = android.os.SystemClock.elapsedRealtimeNanos()
                 Log.d("TTS", "onStop: $utteranceId, interrupted: $interrupted")
+                val attr = utteranceId?.let { utteranceAttributionMap.remove(it) } ?: activeTurnAttribution
                 if (utteranceId != null) {
                     activeUtterances.remove(utteranceId)
                 }
+                com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                    eventType = "TTS_ON_STOP",
+                    details = mapOf("interrupted" to interrupted),
+                    timestampNanos = stopNano,
+                    utteranceId = utteranceId,
+                    attribution = attr
+                )
                 checkSpeakingState()
             }
         })
@@ -158,10 +227,17 @@ class StreamingTTSManager(
         val result = tts!!.setLanguage(locale)
 
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            Log.e("TTS", "Language data missing or not supported for ${locale.language}")
-            val installIntent = Intent()
-            installIntent.action = TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA
-            onMissingData(installIntent)
+            Log.w("TTS", "Language data missing or not supported locally for ${locale.language}, checking available voices fallback")
+            val bestVoice = try { selectOptimalVoice(locale) } catch (e: Exception) { null }
+            if (bestVoice != null) {
+                try {
+                    tts!!.voice = bestVoice
+                    prefs.selectedVoiceName = bestVoice.name
+                    Log.d("TTS", "Selected fallback voice: ${bestVoice.name}")
+                } catch (e: Exception) {
+                    Log.e("TTS", "Failed to assign fallback voice: ${e.message}")
+                }
+            }
             return
         }
 
@@ -182,19 +258,11 @@ class StreamingTTSManager(
         try {
             val bestVoice = selectOptimalVoice(locale)
             if (bestVoice != null) {
-                if (forceOfflineMode && bestVoice.isNetworkConnectionRequired) {
-                    Log.w("TTS", "No offline voice installed for ${locale.language}")
-                    val installIntent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
-                    onMissingData(installIntent)
-                    return
-                }
                 tts!!.voice = bestVoice
                 prefs.selectedVoiceName = bestVoice.name
                 Log.d("TTS", "Selected voice: ${bestVoice.name} (offlineOnly=$forceOfflineMode)")
-            } else if (forceOfflineMode) {
+            } else {
                 Log.w("TTS", "No voice found for ${locale.language}")
-                val installIntent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
-                onMissingData(installIntent)
             }
         } catch (e: Exception) {
             Log.e("TTS", "Failed to select specific voice: ${e.message}")
@@ -241,7 +309,8 @@ class StreamingTTSManager(
 
     private var isFirstPhraseInTurn = true
 
-    fun onTurnStarted() {
+    fun onTurnStarted(attribution: com.syncdialect.app.benchmark.TurnAttribution? = null) {
+        activeTurnAttribution = attribution
         isFirstPhraseInTurn = true
         buffer.clear()
         val hardwareSpeaking = try { tts?.isSpeaking == true } catch (e: Exception) { false }
@@ -253,8 +322,11 @@ class StreamingTTSManager(
     }
 
     // Process incoming translated tokens
-    fun processToken(token: String) {
+    fun processToken(token: String, attribution: com.syncdialect.app.benchmark.TurnAttribution? = null) {
         if (!isReady) return
+        if (attribution != null) {
+            activeTurnAttribution = attribution
+        }
         
         buffer.append(token)
         val currentText = buffer.toString()
@@ -277,7 +349,7 @@ class StreamingTTSManager(
 
                 // Speak the phrase
                 if (phraseToSpeak.isNotEmpty()) {
-                    speak(phraseToSpeak)
+                    speak(phraseToSpeak, attribution ?: activeTurnAttribution)
                     isFirstPhraseInTurn = false
                 }
 
@@ -297,7 +369,7 @@ class StreamingTTSManager(
                 if (lastSpace > 0) {
                     val phraseToSpeak = sanitize(currentText.substring(0, lastSpace))
                     if (phraseToSpeak.isNotEmpty()) {
-                        speak(phraseToSpeak)
+                        speak(phraseToSpeak, attribution ?: activeTurnAttribution)
                         isFirstPhraseInTurn = false
                     }
                     val remainder = currentText.substring(lastSpace + 1)
@@ -307,7 +379,7 @@ class StreamingTTSManager(
                     // For languages without spaces (CJK), speak the chunk directly
                     val phraseToSpeak = sanitize(currentText)
                     if (phraseToSpeak.isNotEmpty()) {
-                        speak(phraseToSpeak)
+                        speak(phraseToSpeak, attribution ?: activeTurnAttribution)
                         isFirstPhraseInTurn = false
                     }
                     buffer.clear()
@@ -328,11 +400,49 @@ class StreamingTTSManager(
             .trim()
     }
 
-    private fun speak(text: String) {
+    private fun speak(text: String, attribution: com.syncdialect.app.benchmark.TurnAttribution? = null) {
         val clean = sanitize(text)
         if (clean.isBlank()) return
-        // Do not log raw user speech/text in production logs for privacy
         val id = "utt_${System.currentTimeMillis()}_${utteranceCounter++}"
+        val nowNano = android.os.SystemClock.elapsedRealtimeNanos()
+        val attr = attribution ?: activeTurnAttribution
+        if (attr != null) {
+            utteranceAttributionMap[id] = attr
+        }
+
+        if (isFirstPhraseInTurn) {
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "FIRST_SPEAKABLE_PHRASE_READY",
+                details = mapOf(
+                    "phrase_length" to clean.length,
+                    "phrase_preview" to clean.take(30)
+                ),
+                timestampNanos = nowNano,
+                utteranceId = id,
+                attribution = attr
+            )
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "FIRST_SPEAKABLE_PHRASE_SUBMITTED",
+                details = mapOf(
+                    "phrase_length" to clean.length,
+                    "phrase_preview" to clean.take(30)
+                ),
+                timestampNanos = nowNano,
+                utteranceId = id,
+                attribution = attr
+            )
+        }
+        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+            eventType = "TTS_SUBMITTED",
+            details = mapOf(
+                "phrase_length" to clean.length,
+                "phrase_preview" to clean.take(30),
+                "is_first_phrase" to isFirstPhraseInTurn
+            ),
+            timestampNanos = nowNano,
+            utteranceId = id,
+            attribution = attr
+        )
         Log.d("TTS", "Dispatching utterance $id (length=${clean.length})")
         activeUtterances.add(id)
         handler.removeCallbacks(watchdogRunnable)
@@ -341,23 +451,30 @@ class StreamingTTSManager(
         val result = tts?.speak(clean, TextToSpeech.QUEUE_ADD, null, id)
         if (result != TextToSpeech.SUCCESS) {
             Log.e("TTS", "tts.speak returned error code $result for id $id")
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "TTS_ERROR",
+                details = mapOf("error_code" to result, "action" to "speak_call"),
+                utteranceId = id,
+                attribution = attr
+            )
             activeUtterances.remove(id)
+            utteranceAttributionMap.remove(id)
             checkSpeakingState()
         }
     }
 
-    fun playText(text: String) {
+    fun playText(text: String, attribution: com.syncdialect.app.benchmark.TurnAttribution? = null) {
         if (!isReady) return
         val cleanText = sanitize(text)
         if (cleanText.isNotEmpty()) {
-            speak(cleanText)
+            speak(cleanText, attribution)
         }
     }
 
-    fun flush() {
+    fun flush(attribution: com.syncdialect.app.benchmark.TurnAttribution? = null) {
         val remainder = sanitize(buffer.toString())
         if (remainder.isNotEmpty()) {
-            speak(remainder)
+            speak(remainder, attribution ?: activeTurnAttribution)
         }
         buffer.clear()
         isFirstPhraseInTurn = true

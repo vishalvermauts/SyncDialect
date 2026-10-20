@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -82,32 +83,47 @@ class MainActivity : ComponentActivity() {
     private var isDownloading = mutableStateOf(false)
     private var downloadProgress = mutableStateOf(0f)
     private var forceOfflineTts = mutableStateOf(true)
+    data class QueuedTurn(
+        val turnId: String,
+        val audioData: ByteArray,
+        val sourceLang: String,
+        val targetLang: String,
+        val targetTag: String,
+        val enqueuedNano: Long = android.os.SystemClock.elapsedRealtimeNanos(),
+        val generationId: Long = 0L,
+        val attribution: com.syncdialect.app.benchmark.TurnAttribution? = null
+    )
+
+    private val maxQueueCapacity = 4
+    private val translationQueue = kotlinx.coroutines.channels.Channel<QueuedTurn>(maxQueueCapacity)
+    private var queueWorkerJob: kotlinx.coroutines.Job? = null
+    private var activeTurnJob: kotlinx.coroutines.Job? = null
+    private val activeGenerationId = java.util.concurrent.atomic.AtomicLong(1L)
 
     private var currentScreen by mutableStateOf("Home")
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean -> }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
-        
-
-
-        // Dismiss splash screen dynamically as soon as activity prepares
         splashScreen.setKeepOnScreenCondition { false }
-        
+
+        val launchNano = android.os.SystemClock.elapsedRealtimeNanos()
+        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+            eventType = "APP_LAUNCH",
+            details = mapOf("activity" to "MainActivity"),
+            timestampNanos = launchNano
+        )
+
         val appPrefs = AppPreferences(this)
         forceOfflineTts.value = appPrefs.forceOfflineTts
 
         audioRecorderHelper = AudioRecorderHelper(appPrefs)
         translationEngine = TranslationEngine(this)
-        ttsEngine = StreamingTTSManager(this) { intent ->
-            runOnUiThread {
-                android.widget.Toast.makeText(this, "Voice data for this language is not installed on your device.", android.widget.Toast.LENGTH_LONG).show()
-            }
-            if (intent != null) startActivity(intent)
+        ttsEngine = StreamingTTSManager(this) { _ ->
+            Log.d("MainActivity", "TTS notice: using available system or network voice")
         }
         ttsEngine.forceOfflineMode = forceOfflineTts.value
         ttsEngine.onSpeakingStateChanged = { isSpeaking ->
@@ -123,6 +139,7 @@ class MainActivity : ComponentActivity() {
         targetLanguageTag.value = prefs.getString("targetLanguageTag", "es") ?: "es"
 
         initializeModelEngine()
+        startQueueWorker()
 
         setContent {
             MaterialTheme {
@@ -133,6 +150,262 @@ class MainActivity : ComponentActivity() {
                 }
                 SyncDialectApp()
             }
+        }
+    }
+
+    private fun startQueueWorker() {
+        if (queueWorkerJob?.isActive == true) return
+        queueWorkerJob = lifecycleScope.launch(Dispatchers.IO) {
+            for (turn in translationQueue) {
+                processQueuedTurn(turn)
+            }
+        }
+    }
+
+    private suspend fun processQueuedTurn(turn: QueuedTurn) {
+        val attr = turn.attribution
+        val currentGen = activeGenerationId.get()
+        if (turn.generationId != currentGen) {
+            val staleNano = android.os.SystemClock.elapsedRealtimeNanos()
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "STALE_TURN_SUPPRESSED",
+                details = mapOf(
+                    "turn_id" to turn.turnId,
+                    "turn_generation_id" to turn.generationId,
+                    "active_generation_id" to currentGen
+                ),
+                timestampNanos = staleNano,
+                turnIdOverride = turn.turnId,
+                attribution = attr
+            )
+            android.util.Log.i("MainActivity", "Suppressed stale queued turn ${turn.turnId} (gen ${turn.generationId} != active $currentGen)")
+            return
+        }
+
+        val dequeueNano = android.os.SystemClock.elapsedRealtimeNanos()
+        val waitMs = (dequeueNano - turn.enqueuedNano) / 1_000_000.0
+        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+            eventType = "QUEUE_DEQUEUE",
+            details = mapOf(
+                "turn_id" to turn.turnId,
+                "chunk_bytes" to turn.audioData.size,
+                "queue_wait_ms" to waitMs,
+                "generation_id" to turn.generationId
+            ),
+            timestampNanos = dequeueNano,
+            turnIdOverride = turn.turnId,
+            attribution = attr
+        )
+        val reqSubmitNano = android.os.SystemClock.elapsedRealtimeNanos()
+        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+            eventType = "INFERENCE_REQUEST_SUBMITTED",
+            details = mapOf("turn_id" to turn.turnId, "chunk_bytes" to turn.audioData.size),
+            timestampNanos = reqSubmitNano,
+            turnIdOverride = turn.turnId,
+            attribution = attr
+        )
+        val msgId = turn.turnId
+        ttsEngine.setLanguage(turn.targetTag)
+        ttsEngine.onTurnStarted(attribution = attr)
+        var isFirstValidText = true
+
+        try {
+            kotlinx.coroutines.coroutineScope {
+                activeTurnJob = coroutineContext[kotlinx.coroutines.Job]
+                translationEngine.translateAudioStreamingExclusive(
+                    sourceLang = turn.sourceLang,
+                    targetLang = turn.targetLang,
+                    audioData = turn.audioData,
+                    onLanguageDetected = { _ -> },
+                    onTokenGenerated = { token, latencyMs ->
+                        if (activeGenerationId.get() != turn.generationId) {
+                            return@translateAudioStreamingExclusive
+                        }
+
+                        val isEnd = token.contains("<end_of_turn>") || token.contains("end_of_turn") || token.contains("eos") || token.contains("<turn|>") || token.contains("<|turn>")
+                        val clean = token.replace("<end_of_turn>", "")
+                            .replace("<turn|>", "")
+                            .replace("<|turn>", "")
+                            .replace("<|channel>", "")
+                            .replace("<channel|>", "")
+                            .replace("\n", "")
+                            .replace(Regex("[\\p{So}\\p{Cn}]"), "") // Strip non-text Unicode pictographs/emojis
+                        if (clean.isNotEmpty() && !clean.contains("[SILENCE]")) {
+                            if (isFirstValidText) {
+                                isFirstValidText = false
+                                val firstValidNano = android.os.SystemClock.elapsedRealtimeNanos()
+                                com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                                    eventType = "FIRST_VALID_TRANSLATED_TEXT",
+                                    details = mapOf(
+                                        "token_preview" to clean.take(30),
+                                        "clean_length" to clean.length
+                                    ),
+                                    timestampNanos = firstValidNano,
+                                    turnIdOverride = turn.turnId,
+                                    attribution = attr
+                                )
+                            }
+                            runOnUiThread {
+                                val idx = messages.indexOfFirst { it.id == msgId }
+                                if (idx == -1) {
+                                    messages.add(ChatMessage(clean, turn.targetLang, false, msgId))
+                                } else {
+                                    messages[idx] = messages[idx].copy(text = messages[idx].text + clean)
+                                }
+                            }
+                            ttsEngine.processToken(clean, attribution = attr)
+                        }
+                        if (isEnd) {
+                            ttsEngine.flush(attribution = attr)
+                        }
+                    },
+                    onComplete = {
+                        if (activeGenerationId.get() == turn.generationId) {
+                            ttsEngine.flush(attribution = attr)
+                        }
+                    },
+                    onError = { err ->
+                        if (activeGenerationId.get() == turn.generationId) {
+                            runOnUiThread {
+                                isRecording.value = false
+                                audioRecorderHelper.stopRecording()
+                                cancelAndClearQueue("inference_error")
+                                messages.add(ChatMessage("Error: $err", "System"))
+                            }
+                        }
+                    },
+                    attribution = attr
+                )
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            val cancelNano = android.os.SystemClock.elapsedRealtimeNanos()
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "TURN_EXECUTION_CANCELLED",
+                details = mapOf("turn_id" to turn.turnId, "generation_id" to turn.generationId),
+                timestampNanos = cancelNano,
+                turnIdOverride = turn.turnId,
+                attribution = attr
+            )
+            android.util.Log.i("MainActivity", "Turn ${turn.turnId} was cancelled mid-execution.")
+        } finally {
+            activeTurnJob = null
+        }
+    }
+
+    fun submitTurnForProcessing(
+        audioData: ByteArray,
+        turnId: String = "turn_${System.currentTimeMillis()}",
+        sourceLang: String = sourceLanguage.value,
+        targetLang: String = targetLanguage.value,
+        targetTag: String = targetLanguageTag.value,
+        segmentIdOverride: String? = null,
+        attribution: com.syncdialect.app.benchmark.TurnAttribution? = null
+    ): Boolean {
+        val currentGen = activeGenerationId.get()
+        val finalAttribution = attribution ?: if (segmentIdOverride != null) {
+            com.syncdialect.app.benchmark.TurnAttribution(
+                attemptId = com.syncdialect.app.benchmark.BenchmarkEventLogger.currentAttemptId,
+                recordingId = com.syncdialect.app.benchmark.BenchmarkEventLogger.currentRecordingId,
+                turnId = turnId,
+                segmentId = segmentIdOverride,
+                inferenceId = "inf_${System.currentTimeMillis()}"
+            )
+        } else null
+
+        val queuedTurn = QueuedTurn(
+            turnId = turnId,
+            audioData = audioData,
+            sourceLang = sourceLang,
+            targetLang = targetLang,
+            targetTag = targetTag,
+            enqueuedNano = android.os.SystemClock.elapsedRealtimeNanos(),
+            generationId = currentGen,
+            attribution = finalAttribution
+        )
+        val offerResult = translationQueue.trySend(queuedTurn)
+        if (offerResult.isSuccess) {
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "QUEUE_ENTRY",
+                details = mapOf(
+                    "turn_id" to turnId,
+                    "chunk_bytes" to audioData.size,
+                    "queue_capacity" to maxQueueCapacity,
+                    "generation_id" to currentGen
+                ),
+                timestampNanos = queuedTurn.enqueuedNano,
+                turnIdOverride = turnId,
+                segmentIdOverride = segmentIdOverride,
+                attribution = finalAttribution
+            )
+            return true
+        } else {
+            val dropNano = android.os.SystemClock.elapsedRealtimeNanos()
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "QUEUE_OVERFLOW",
+                details = mapOf(
+                    "reason" to "queue_capacity_exceeded",
+                    "chunk_bytes" to audioData.size,
+                    "queue_limit" to maxQueueCapacity,
+                    "generation_id" to currentGen
+                ),
+                timestampNanos = dropNano,
+                turnIdOverride = turnId,
+                segmentIdOverride = segmentIdOverride,
+                attribution = finalAttribution
+            )
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "DROPPED_AUDIO",
+                details = mapOf(
+                    "reason" to "queue_overflow",
+                    "chunk_bytes" to audioData.size
+                ),
+                timestampNanos = dropNano,
+                turnIdOverride = turnId,
+                segmentIdOverride = segmentIdOverride,
+                attribution = finalAttribution
+            )
+            android.util.Log.w("MainActivity", "Translation queue overflow! Dropping audio chunk.")
+            return false
+        }
+    }
+
+    fun cancelAndClearQueue(reason: String) {
+        val prevGen = activeGenerationId.get()
+        val newGen = activeGenerationId.incrementAndGet()
+
+        // 1. Cancel active in-flight translation job if running
+        activeTurnJob?.cancel()
+        activeTurnJob = null
+
+        // 2. Stop TTS immediately and clear utterances
+        ttsEngine.stop()
+
+        // 3. Purge all pending queued items from the channel
+        var dropped = 0
+        while (true) {
+            val item = translationQueue.tryReceive().getOrNull() ?: break
+            dropped++
+        }
+
+        val purgeNano = android.os.SystemClock.elapsedRealtimeNanos()
+        com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+            eventType = "CANCELLATION_TRIGGERED",
+            details = mapOf(
+                "reason" to reason,
+                "prev_generation_id" to prevGen,
+                "new_generation_id" to newGen,
+                "dropped_turns" to dropped
+            ),
+            timestampNanos = purgeNano
+        )
+
+        if (dropped > 0) {
+            com.syncdialect.app.benchmark.BenchmarkEventLogger.logEvent(
+                eventType = "QUEUE_PURGED",
+                details = mapOf("dropped_turns" to dropped, "reason" to reason),
+                timestampNanos = purgeNano
+            )
+            android.util.Log.i("MainActivity", "Purged $dropped stale turns from queue due to: $reason (gen: $prevGen -> $newGen)")
         }
     }
 
@@ -215,17 +488,22 @@ class MainActivity : ComponentActivity() {
             }.sortedBy { it.first }
         }
         
-        LaunchedEffect(currentScreen) {
+        val baseLanguages = remember { listOf(Pair("English", "en"), Pair("Spanish", "es")) }
+        val refreshDownloadedLanguages: () -> Unit = {
             RemoteModelManager.getInstance().getDownloadedModels(TranslateRemoteModel::class.java)
                 .addOnSuccessListener { models ->
-                    downloadedLanguages = models.map { 
+                    val dynamicList = models.map { 
                         Pair(Locale(it.language).displayLanguage.replaceFirstChar { c -> c.uppercase() }, it.language)
-                    }.sortedBy { it.first }
-                    
-                    if (downloadedLanguages.isEmpty()) {
-                        downloadedLanguages = listOf(Pair("English", "en"), Pair("Spanish", "es"))
                     }
+                    downloadedLanguages = (baseLanguages + dynamicList).distinctBy { it.second }.sortedBy { it.first }
                 }
+                .addOnFailureListener {
+                    downloadedLanguages = baseLanguages
+                }
+        }
+        
+        LaunchedEffect(currentScreen) {
+            refreshDownloadedLanguages()
         }
 
         Box(
@@ -273,6 +551,7 @@ class MainActivity : ComponentActivity() {
                         onSourceClick = { editingLangType = "source"; showLangSheet = true },
                         onTargetClick = { editingLangType = "target"; showLangSheet = true },
                         onSwap = { 
+                            cancelAndClearQueue("language_swap")
                             val tempName = sourceLanguage.value
                             sourceLanguage.value = targetLanguage.value
                             targetLanguage.value = tempName
@@ -333,6 +612,7 @@ class MainActivity : ComponentActivity() {
                         if (isRecording.value) {
                             isRecording.value = false
                             audioRecorderHelper.stopRecording()
+                            cancelAndClearQueue("user_mic_stop")
                         } else {
                             if (!isModelReady.value) {
                                 messages.add(ChatMessage("Gemma Model is missing. Please go to Settings to download the 2.2GB offline engine.", "System", false))
@@ -343,65 +623,11 @@ class MainActivity : ComponentActivity() {
                                 return@BottomControls
                             }
                             
-                            audioRecorderHelper.startContinuousRecording { audioData ->
-                                if (!translationEngine.tryStartTranslation()) {
-                                    android.util.Log.d("MainActivity", "Chunk dropped — translation already in progress")
-                                    return@startContinuousRecording
-                                }
-                                val msgId = java.util.UUID.randomUUID().toString()
-                                // Snapshot current language selection so in-flight translation is immutable
-                                val currentSourceLang = sourceLanguage.value
-                                val currentTargetLang = targetLanguage.value
-                                val currentTargetTag = targetLanguageTag.value
-
-                                // Prepare TTS for a new turn
-                                ttsEngine.onTurnStarted()
-
-                                lifecycleScope.launch(Dispatchers.IO) {
-                                    translationEngine.translateAudioStreamingExclusive(
-                                        sourceLang = currentSourceLang,
-                                        targetLang = currentTargetLang,
-                                        audioData = audioData,
-                                        onLanguageDetected = { _ -> },
-                                        onTokenGenerated = { token, latencyMs ->
-                                            val isEnd = token.contains("<end_of_turn>") || token.contains("end_of_turn") || token.contains("eos") || token.contains("<turn|>") || token.contains("<|turn>")
-                                            val clean = token.replace("<end_of_turn>", "")
-                                                .replace("<turn|>", "")
-                                                .replace("<|turn>", "")
-                                                .replace("<|channel>", "")
-                                                .replace("<channel|>", "")
-                                                .replace("\n", "")
-                                            if (clean.isNotEmpty() && !clean.contains("[SILENCE]")) {
-                                                runOnUiThread {
-                                                    val idx = messages.indexOfFirst { it.id == msgId }
-                                                    if (idx == -1) {
-                                                        // First token — create the message row now
-                                                        messages.add(ChatMessage(clean, currentTargetLang, false, msgId))
-                                                    } else {
-                                                        // Subsequent tokens — append
-                                                        messages[idx] = messages[idx].copy(text = messages[idx].text + clean)
-                                                    }
-                                                }
-                                                ttsEngine.processToken(clean)
-                                            }
-                                            if (isEnd) {
-                                                ttsEngine.flush()
-                                            }
-                                        },
-                                        onComplete = {
-                                            ttsEngine.flush()
-                                        },
-                                        onError = { err ->
-                                            runOnUiThread {
-                                                isRecording.value = false
-                                                audioRecorderHelper.stopRecording()
-                                                messages.add(ChatMessage("Error: $err", "System"))
-                                            }
-                                        }
-                                    )
-                                }
-                            }
                             isRecording.value = true
+                            audioRecorderHelper.startContinuousRecording { audioData ->
+                                val turnId = "turn_${System.currentTimeMillis()}"
+                                submitTurnForProcessing(audioData, turnId)
+                            }
                         }
                     },
                     modifier = Modifier
@@ -440,7 +666,8 @@ class MainActivity : ComponentActivity() {
                         ttsEngine = ttsEngine,
                         downloadManager = downloadManager,
                         mainActivityContext = this@MainActivity,
-                        onModelDownloaded = { initializeModelEngine() }
+                        onModelDownloaded = { initializeModelEngine() },
+                        onLanguagePacksUpdated = refreshDownloadedLanguages
                     )
                 }
                 NavBar(modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
@@ -466,8 +693,10 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxWidth()
                                     .clickable {
                                         if (editingLangType == "source") {
+                                            cancelAndClearQueue("source_language_change")
                                             sourceLanguage.value = langPair.first
                                         } else {
+                                            cancelAndClearQueue("target_language_change")
                                             targetLanguage.value = langPair.first
                                             targetLanguageTag.value = langPair.second
                                             ttsEngine.setLanguage(langPair.second)
@@ -829,9 +1058,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Test & Benchmark Accessors (Visible for androidTest / benchmark harness)
+    fun setLanguagesForBenchmark(source: String, target: String, targetTag: String) {
+        sourceLanguage.value = source
+        targetLanguage.value = target
+        targetLanguageTag.value = targetTag
+        ttsEngine.setLanguage(targetTag)
+    }
+
+    fun getTranslationEngineInstance(): TranslationEngine = translationEngine
+    fun getStreamingTTSManagerInstance(): StreamingTTSManager = ttsEngine
+    fun getAudioRecorderHelperInstance(): AudioRecorderHelper = audioRecorderHelper
+    fun isModelReadyState(): Boolean = isModelReady.value
+    fun getMessagesList(): List<ChatMessage> = messages.toList()
+
     override fun onDestroy() {
         super.onDestroy()
         audioRecorderHelper.stopRecording()
+        cancelAndClearQueue("activity_destroyed")
         ttsEngine.shutdown()
         translationEngine.close()
     }

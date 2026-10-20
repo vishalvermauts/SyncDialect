@@ -13,6 +13,7 @@ android {
         targetSdk = 36
         versionCode = 24
         versionName = "2.0.0-beta3"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -41,7 +42,7 @@ android {
     buildFeatures {
       compose = true
       aidl = false
-      buildConfig = false
+      buildConfig = true
       shaders = false
     }
 
